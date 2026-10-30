@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <!-- Whitby: title bar with the bell, rail, project sidebar with status dots, agent header, terminal, footer. -->
+  <rect width="320" height="200" fill="#fcfcfd"/>
+  <!-- title bar with traffic lights and the centered caption -->
+  <rect width="320" height="12" fill="#fcfcfd"/>
+  <circle cx="6" cy="6" r="2" fill="#ff5f57"/><circle cx="12" cy="6" r="2" fill="#febc2e"/><circle cx="18" cy="6" r="2" fill="#28c840"/>
+  <rect x="130" y="4.5" width="60" height="3" rx="1.5" fill="#60646c" opacity=".55"/>
+  <path d="M305 9.5c0-2 1.3-3.5 3-3.5s3 1.5 3 3.5v1.6l.8 1h-7.6l.8-1z" fill="#ffffff" stroke="#246cf4" stroke-width=".7"/>
+  <circle cx="311.5" cy="5" r="1.8" fill="#246cf4"/>
+  <rect y="12" width="320" height="1" fill="#d9d9e0"/>
+  <!-- rail -->
+  <rect y="13" width="19" height="187" fill="#fcfcfd"/>
+  <rect x="5" y="170" width="10" height="10" rx="2.5" fill="none" stroke="#d9d9e0"/>
+  <rect x="5" y="184" width="10" height="10" rx="2.5" fill="none" stroke="#d9d9e0"/>
+  <rect x="19" y="13" width="1" height="187" fill="#d9d9e0"/>
+  <!-- sidebar: filter, project header, sections and rows -->
+  <rect x="20" y="13" width="76" height="187" fill="#f9f9fb"/>
+  <rect x="20" y="13" width="76" height="14" fill="#fcfcfd"/>
+  <rect x="25" y="18" width="40" height="4" rx="2" fill="#adafb6"/>
+  <rect x="20" y="27" width="76" height="1" fill="#d9d9e0"/>
+  <rect x="20" y="28" width="76" height="16" fill="#ffffff"/>
+  <path d="M24 34l2 2 2-2" stroke="#189a30" fill="none" stroke-width="1"/>
+  <rect x="32" y="33.5" width="24" height="4" rx="1" fill="#1c2024"/>
+  <rect x="20" y="44" width="76" height="1" fill="#d9d9e0"/>
+  <rect x="32" y="50" width="18" height="2.5" rx="1" fill="#60646c" opacity=".6"/>
+  <rect x="52" y="51" width="34" height="0.6" fill="#60646c" opacity=".3"/>
+  <rect x="20" y="57" width="1.5" height="9" rx=".75" fill="#246cf4"/>
+  <circle cx="35" cy="61.5" r="1.6" fill="#6cbf8a"/>
+  <rect x="40" y="59.5" width="36" height="3.5" rx="1" fill="#1c2024"/>
+  <circle cx="42" cy="71.5" r="1.6" fill="#b0b2b6"/>
+  <rect x="47" y="69.5" width="30" height="3.5" rx="1" fill="#60646c"/>
+  <circle cx="35" cy="81.5" r="1.6" fill="#a78bfa"/><circle cx="70" cy="79.8" r="1.1" fill="#246cf4"/>
+  <rect x="40" y="79.5" width="28" height="3.5" rx="1" fill="#60646c"/>
+  <rect x="32" y="91" width="22" height="2.5" rx="1" fill="#60646c" opacity=".6"/>
+  <rect x="56" y="92" width="30" height="0.6" fill="#60646c" opacity=".3"/>
+  <circle cx="35" cy="101.5" r="1.6" fill="#6cbf8a" fill-opacity=".5"/>
+  <rect x="40" y="99.5" width="14" height="3.5" rx="1" fill="#60646c"/>
+  <rect x="20" y="109" width="76" height="1" fill="#d9d9e0"/>
+  <rect x="20" y="110" width="76" height="16" fill="#ffffff"/>
+  <path d="M25 116l2 2-2 2" stroke="#adafb6" fill="none" stroke-width="1"/>
+  <rect x="32" y="115.5" width="20" height="4" rx="1" fill="#1c2024"/>
+  <rect x="20" y="126" width="76" height="1" fill="#d9d9e0"/>
+  <rect x="96" y="13" width="1" height="187" fill="#d9d9e0"/>
+  <!-- agent header -->
+  <rect x="97" y="13" width="223" height="24" fill="#fcfcfd"/>
+  <rect x="105" y="18" width="50" height="5" rx="1" fill="#1c2024"/>
+  <rect x="105" y="27" width="40" height="3" rx="1" fill="#60646c" opacity=".7"/>
+  <rect x="97" y="37" width="223" height="1" fill="#246cf4"/>
+  <!-- terminal -->
+  <rect x="97" y="38" width="223" height="145" fill="#ffffff"/>
+  <rect x="101" y="43" width="80" height="3" rx="1" fill="#25262b"/>
+  <rect x="101" y="50" width="120" height="3" rx="1" fill="#4e9a63"/>
+  <rect x="101" y="57" width="95" height="3" rx="1" fill="#25262b"/>
+  <rect x="101" y="64" width="60" height="3" rx="1" fill="#3965b3"/>
+  <!-- footer -->
+  <rect x="97" y="183" width="223" height="1" fill="#246cf4"/>
+  <rect x="97" y="184" width="223" height="16" fill="#f8f8fa"/>
+  <rect x="103" y="190.5" width="30" height="3" rx="1" fill="#60646c" opacity=".7"/>
+  <rect x="250" y="190.5" width="30" height="3" rx="1" fill="#60646c" opacity=".7"/>
+  <circle cx="287" cy="192" r="1.6" fill="#6cbf8a"/>
+  <rect x="291" y="190.5" width="22" height="3" rx="1" fill="#2e9f4b"/>
+</svg>
