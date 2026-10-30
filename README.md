@@ -1,5 +1,7 @@
 # Whitby for Herdr
 
+https://github.com/user-attachments/assets/2cde7bac-219a-4fae-af91-7bd3a1419120
+
 <p align="center">
   <img src="preview.png" width="1136" alt="Whitby for Herdr: a project sidebar of agents in every state, the attention bell, and an agent's terminal with its header and footer">
 </p>
