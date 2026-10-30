@@ -112,7 +112,9 @@ function fold(v, t, key, open, shown) {
     .opacity(shown ? 1 : 0)
     .cursor_pointer()
     .hover((s) => s.bg(t.selected))
-    .on_click((_e, cx) => { cx.stop_propagation(); toggle(v, key, cx); })
+    // Acts on the press and stops it: inside a clickable row, the row's own click
+    // would otherwise take it.
+    .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); toggle(v, key, cx); })
     .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, alpha(t.muted, 0.4)));
 }
 
@@ -257,7 +259,7 @@ function reveal(v, t, space, all) {
     .cursor_pointer()
     .hover((s) => s.bg(t.hover).text_color(t.foreground))
     .tooltip("Reveal in Finder")
-    .on_click((_e, cx) => { cx.stop_propagation(); exec("open", [folder]); })
+    .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); exec("open", [folder]); })
     .child(icon("folder", 10.5));
 }
 
@@ -285,7 +287,7 @@ function project(v, t, space, all, ts, pos) {
     .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: space.id } } }))
     .child(div().id(`proj-fold-${space.id}`).ml(-5.25).w(21).h(21).flex_none().flex().items_center().justify_center().rounded(3.5)
       .hover((s) => s.bg(t.selected))
-      .on_click((_e, cx) => { cx.stop_propagation(); toggle(v, space.id, cx); })
+      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); toggle(v, space.id, cx); })
       .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, working ? t.running : alpha(t.muted, 0.4))))
     .child(div().flex_1().min_w(0).truncate().text_size(12.25).font_weight(700).text_color(t.foreground).child(space.name))
     .children(stats(t, badges(spaceTerminals(space, all, ts).reduce((sum, a) => {

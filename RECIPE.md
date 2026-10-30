@@ -135,6 +135,8 @@ agent you're on fills the rest of the window.
 - On the element that takes a press, a press dragged off and released elsewhere never reports
   the pointer leaving. Track hover on an outer element, and draw the pressed fill with
   `.active()` on the topmost layer, which also takes `on_click`.
+- A control inside a clickable row (a fold chevron, Reveal in Finder) acts on `on_mouse_down`
+  and stops propagation there; with `on_click`, the row takes the click instead.
 - Keep hit areas inside their block. The bell's 24×22 px target ends at y=29, inside the
   30 px title bar, so leaving downward reports. Overlay windows can't sit closer than about 25 px to the window's right edge.
 - `.child(null)` breaks rendering; use `.children([])`.
