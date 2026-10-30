@@ -1,7 +1,7 @@
 # Whitby for Herdr
 
 <p align="center">
-  <img src="preview.png" width="1024" alt="Whitby for Herdr: a project sidebar of agents in every state, the attention bell, and an agent's terminal with its header and footer">
+  <img src="preview.png" width="1136" alt="Whitby for Herdr: a project sidebar of agents in every state, the attention bell, and an agent's terminal with its header and footer">
 </p>
 
 A [Herdr](https://herdr.dev) layout that takes its inspiration from [Solo](https://soloterm.com): a
