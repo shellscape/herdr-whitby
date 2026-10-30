@@ -1,10 +1,9 @@
 # Whitby
 
-A light, calm workspace in the manner of Solo (soloterm.com). A 30 px title bar reads
-"Herdr: Whitby - project - agent" beside the Whitby mark. A narrow rail and a projects sidebar
-list every space as a project, its agents and terminals each marked by a small status dot. The
-agent you're on fills the rest: a header with its name and state, its terminal, and a footer of
-keys and process facts. A blue bell in the top-right corner counts the agents waiting on you.
+A calm, light workspace inspired by Solo. Your spaces become projects in a tidy sidebar, and
+every agent wears a soft dot: green while it works, purple when it needs you, red when it's
+stuck. Agents they start nest underneath. A blue bell counts whatever is waiting on you, and the
+agent you're on fills the rest of the window.
 
 ![Whitby](preview.png)
 
