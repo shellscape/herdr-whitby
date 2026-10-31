@@ -64,7 +64,7 @@ agent you're on fills the rest of the window.
   | running (a live terminal with no agent status) | `#6cbf8a` at 50% |
   | done | `#8ab0f7` |
   | idle | `muted` at 55% |
-  | stopped (a finished helper) | `muted` at 30% |
+  | stopped (a finished sub-agent) | `muted` at 30% |
   | error | `#e5787a` |
   | blocked on an approval (kind `permission`) | `#e5787a`, pulsing |
   | needs you (a question, `auth`, or no kind) | `#a78bfa`, pulsing |
@@ -74,12 +74,12 @@ agent you're on fills the rest of the window.
   in that state. Each unread row has a 5 px `#246cf4` dot after its title. The bell counts them;
   clicking it focuses the most urgent (error, blocked, needs you, done). What's read is kept in
   `shared("whitby.read")`.
-- **Sub-agents.** A terminal's sub-agents (`hc run` children) and its helper records (OSC 7501
-  records, as Claude Code's subagents) list under it. A sub-agent's done shows idle; a finished
-  helper shows stopped. Hovering a parent shows a fold chevron, and folded it reads
-  "(+N subagents)". Clicking a sub-agent shows it in its tab's pane in place of the parent's
-  terminal, and the blue bar, header and footer follow it; clicking a helper shows its agent.
-  Clicking the parent's row, or Close in the header, brings the parent back.
+- **Sub-agents.** A terminal's sub-agents (`hc run` children) list under it, as herdr's agents
+  list counts them; its OSC 7501 records (Grok's loops and monitors) have no terminal and
+  aren't listed. A sub-agent's done shows idle; a finished one shows stopped. Hovering a parent
+  shows a fold chevron, and folded it reads "(+N subagents)". Clicking a sub-agent shows it in
+  its tab's pane in place of the parent's terminal, and the blue bar, header and footer follow
+  it. Clicking the parent's row, or Close in the header, brings the parent back.
 - **Rows.** Click selects the space and tab. Right-click opens herdr's tab menu, or its space
   menu on a project header. The project chevron folds a project, and a section's chevron folds
   the section; folds persist. The blue bar slides to the selected row in 200 ms. Hovering a
@@ -151,8 +151,8 @@ agent you're on fills the rest of the window.
 
 - `herdr-app check mods/whitby` passes, and `layout.switch {name: "whitby"}` shows the title bar,
   rail, sidebar, header, terminal and footer with no entries in `herdr-app status` errors.
-- `scripts/demo.sh` shows each state's dot as listed, two sub-agents and three helpers nested
-  under their agents, unread dots on the six agents that want attention, and a bell reading 6.
+- `scripts/demo.sh` shows each state's dot as listed, two sub-agents nested under the first
+  agent, unread dots on the six agents that want attention, and a bell reading 6.
 - Hovering a rail button fades it in and out. Pressing it, dragging off and releasing elsewhere
   leaves it at rest. Hovering the bell fades it light blue, and moving down off it fades it back.
 - Clicking the bell focuses an unread agent and its dot goes; the bell's count drops.

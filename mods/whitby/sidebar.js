@@ -102,7 +102,7 @@ function stats(t, list) {
 // Every terminal a space runs: its panes' and the sub-agents under them.
 function spaceTerminals(space, all, ts) {
   const tabs = new Set(space.tabs.map((tab) => tab.id));
-  const under = (address) => children(address, ts).filter((c) => c.address).flatMap((c) => [c.address, ...under(c.address)]);
+  const under = (address) => children(address, ts).flatMap((c) => [c.address, ...under(c.address)]);
   return all.filter((p) => tabs.has(p.tab) && p.terminal).flatMap((p) => [p.terminal, ...under(p.terminal)]);
 }
 
@@ -137,14 +137,14 @@ function title(t, text, unread, folded, count) {
 }
 
 // Sub-agents under a terminal, depth first, each indented one level more; a folded
-// parent hides its own. A terminal one shows in the tab's lead pane (see show); a
-// helper its agent reports (a record) shows that agent. The one shown takes the selection.
+// parent hides its own. Each shows in the tab's lead pane (see show); the one shown
+// takes the selection.
 function subRows(v, t, address, depth, go, showing, ts, pos) {
   return children(address, ts).flatMap((c) => {
     const key = `kids:${c.key}`;
-    const kids = c.address ? subCount(c.address, ts) : 0;
+    const kids = subCount(c.address, ts);
     const open = !v.folded.has(key);
-    const on = Boolean(c.address) && c.address === showing;
+    const on = c.address === showing;
     if (on) pos.selected = pos.y;
     pos.y += ROW;
     const r = h_flex()
@@ -159,10 +159,10 @@ function subRows(v, t, address, depth, go, showing, ts, pos) {
       .text_color(on ? t.foreground : t.muted)
       .hover((s) => s.bg(t.rowHover))
       .on_hover((on, cx) => { if (on) v.hoverRow = c.key; else if (v.hoverRow === c.key) v.hoverRow = null; cx.notify(); })
-      .on_click(() => go(c.address ?? c.parent))
+      .on_click(() => go(c.address))
       .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
       .child(title(t, childTitle(c), false, kids > 0 && !open, kids))
-      .children(stats(t, badges(c.address && v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem)))
+      .children(stats(t, badges(v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem)))
       .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === c.key || !open)));
     return [r, ...(kids > 0 && open ? subRows(v, t, c.address, depth + 1, go, showing, ts, pos) : [])];
   });

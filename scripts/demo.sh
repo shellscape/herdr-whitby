@@ -66,7 +66,6 @@ agent blocked claude-code "Blocked (approval)" permission
 agent blocked muse "Needs you (question)" question
 agent blocked grok-build "Needs you (sign-in)" auth
 agent blocked muse "Needs you (no reason)"
-tab "\"argv\":[\"$repo/scripts/fake-helpers.sh\"]"
 tab '"name":"Running (shell)"'
 tab '"name":"Running (program)","argv":["sleep","86400"]'
 in_demo herdr-app do tab.select '{"index":1}' >/dev/null

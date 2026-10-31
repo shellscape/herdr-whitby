@@ -24,9 +24,10 @@ Version 0.1.0.
   (finished while you were away), grey means idle and light grey means stopped. Solid red is an
   error, pulsing red is blocked on an approval, and pulsing purple needs you (a question, a
   sign-in or no reason given).
-- **Nested sub-agents.** Agents an agent starts nest under it, whether it started them as
-  terminals (`hc run`) or reports them as helpers (Claude Code's subagents). Hover a parent to
-  fold them; folded, it reads "(+2 subagents)".
+- **Nested sub-agents.** Agents an agent starts as terminals (`hc run`) nest under it, as
+  herdr's agents list counts them. Work an agent only reports about itself (OSC 7501 records,
+  such as Grok's loops and monitors) has no terminal to show and isn't listed. Hover a parent
+  to fold them; folded, it reads "(+2 subagents)".
 - **Unread dots and the attention bell.** An agent that finished, is blocked, needs you or failed
   is unread until you look at it, and carries a small blue dot. The bell in the top-right corner
   counts them; click it to go to the most urgent one.
@@ -124,8 +125,7 @@ herdr-app do layout.switch --name main && herdr-app do layout.switch --name whit
   edges, so they can't sit tight in a corner.
 - **No nulls.** `.child(null)` breaks a render; use `.children([])` or `.when()`.
 - **What herdr gives a layout.** `terminals()` leaves finished terminals out, so a finished
-  `hc run` sub-agent can't be shown as stopped. Helper records' titles arrive decoded, but
-  programs send them base64.
+  `hc run` sub-agent can't be shown as stopped.
 
 ### Contributing
 

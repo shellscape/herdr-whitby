@@ -97,22 +97,19 @@ export function tabTitle(tab, all = panes()) {
   return tab.named ? tab.name : paneTitle(lead(tab, all));
 }
 
-// Agents a terminal started: terminals run from inside it (`hc run`), then the
-// helpers its program reports itself (OSC 7501 records, as Claude Code's subagents).
-// Each is { key, address?, record?, parent }: a record has no terminal of its own.
+// Agents a terminal started: terminals run from inside it (`hc run`), as herdr's agents
+// list counts them. What its program reports about its own work (OSC 7501 records, as
+// Grok's loops and monitors) has no terminal to show, so it isn't listed.
 export function children(address, all = terminals()) {
   if (!address) return [];
   // A finished one stays, stopped, as Solo keeps a finished child in the tree (when
   // terminals() still lists it; herdr leaves most finished terminals out).
-  const runs = all.filter((k) => k.parent === address && (k.state === "live" || k.state === "finished")).map((k) => ({ key: k.address, address: k.address, terminal: k, parent: address }));
-  const own = all.find((k) => k.address === address)?.records ?? {};
-  const helpers = Object.entries(own).map(([id, record]) => ({ key: `${address}#${id}`, record, parent: address }));
-  return [...runs, ...helpers];
+  return all.filter((k) => k.parent === address && (k.state === "live" || k.state === "finished")).map((k) => ({ key: k.address, address: k.address, terminal: k }));
 }
 
 // Everything under a terminal, at any depth (Whitby's "+N subprocesses").
 export function subCount(address, all = terminals()) {
-  return children(address, all).reduce((n, c) => n + 1 + (c.address ? subCount(c.address, all) : 0), 0);
+  return children(address, all).reduce((n, c) => n + 1 + subCount(c.address, all), 0);
 }
 
 // What a terminal says about itself (herdr-core's words): its status, which can be
@@ -183,17 +180,15 @@ export function markRead(ts = terminals()) {
   if (!same) setShared(READ, next);
 }
 
-// A sub-agent's state. It reports to its parent, so its "done" isn't news: a finished
-// helper (a record that says done, a terminal that ended) is stopped.
+// A sub-agent's state. It reports to its parent, so its "done" isn't news: it shows idle,
+// and one whose terminal ended is stopped.
 export function subStatus(c) {
-  if (c.record) return c.record.state === "done" ? "stopped" : stateOf(c.record.state, true, { word: c.record.state, kind: c.record.kind });
   const k = c.terminal;
   return stateOf(k?.status === "done" ? "idle" : k?.status, k?.state === "live", { word: k?.status, kind: k?.report?.kind });
 }
 
 // A sub-agent's name: the one it was given, else its own title, else its program.
 export function childTitle(c) {
-  if (c.record) return clean(c.record.title) || clean(c.record.msg) || c.record.app || "Subagent";
   const k = c.terminal;
   return k.name || paneTitle({ title: k.title, program: k.program }) || k.template || k.address;
 }
