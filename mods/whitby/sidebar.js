@@ -4,7 +4,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { spaces, panes, terminals, run, openOverlay, window, exec, layout } from "herdr";
+import { spaces, panes, terminals, focused, run, openOverlay, window, exec, layout } from "herdr";
 import { palette, alpha, icon, lead, tabTitle, subCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, SHOW } from "./kit.js";
 
 const SECTIONS = [
@@ -58,6 +58,14 @@ function toggle(v, key, cx) {
 function select(space, tab) {
   if (!space.active) run("space.select", { id: space.id });
   if (tab) run("tab.select", { id: tab.id });
+}
+
+// Shows a terminal in its tab's lead pane, in place of the pane's own; the pane's own
+// terminal (or none) brings it back. Sub-agents open here, not in a peek over the tab.
+function show(space, tab, lead, terminal) {
+  select(space, tab);
+  if (!lead) return;
+  run("terminal.show", terminal && terminal !== lead.terminal ? { terminal, pane: lead.pane } : { pane: lead.pane });
 }
 
 function add(space, section) {
@@ -129,14 +137,15 @@ function title(t, text, unread, folded, count) {
 }
 
 // Sub-agents under a terminal, depth first, each indented one level more; a folded
-// parent hides its own. A terminal one peeks, as herdr's agents list does; a helper
-// its agent reports (a record) goes to that agent.
-function subRows(v, t, address, depth, all, ts, pos) {
+// parent hides its own. A terminal one shows in the tab's lead pane (see show); a
+// helper its agent reports (a record) shows that agent. The one shown takes the selection.
+function subRows(v, t, address, depth, go, showing, ts, pos) {
   return children(address, ts).flatMap((c) => {
     const key = `kids:${c.key}`;
     const kids = c.address ? subCount(c.address, ts) : 0;
     const open = !v.folded.has(key);
-    const owner = all.find((p) => p.terminal === c.parent);
+    const on = Boolean(c.address) && c.address === showing;
+    if (on) pos.selected = pos.y;
     pos.y += ROW;
     const r = h_flex()
       .id(`sub-${c.key}`)
@@ -147,15 +156,15 @@ function subRows(v, t, address, depth, all, ts, pos) {
       .gap(5.25)
       .items_center()
       .cursor_pointer()
-      .text_color(t.muted)
+      .text_color(on ? t.foreground : t.muted)
       .hover((s) => s.bg(t.rowHover))
       .on_hover((on, cx) => { if (on) v.hoverRow = c.key; else if (v.hoverRow === c.key) v.hoverRow = null; cx.notify(); })
-      .on_click(() => c.address ? run("terminal.peek", { terminal: c.address }) : owner ? run("pane.focus", { pane: owner.pane }) : run("terminal.peek", { terminal: c.parent }))
+      .on_click(() => go(c.address ?? c.parent))
       .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
       .child(title(t, childTitle(c), false, kids > 0 && !open, kids))
       .children(stats(t, badges(c.address && v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem)))
       .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === c.key || !open)));
-    return [r, ...(kids > 0 && open ? subRows(v, t, c.address, depth + 1, all, ts, pos) : [])];
+    return [r, ...(kids > 0 && open ? subRows(v, t, c.address, depth + 1, go, showing, ts, pos) : [])];
   });
 }
 
@@ -164,6 +173,10 @@ function row(v, t, space, tab, all, ts, selected, pos) {
   const key = `kids:${p?.terminal}`;
   const kids = subCount(p?.terminal, ts);
   const open = !v.folded.has(key);
+  const go = (terminal) => show(space, tab, p, terminal);
+  // A sub-agent shown in this row's pane in place of its own (see show).
+  const f = focused();
+  const showing = selected && p && f?.pane === p.pane ? f.shown : null;
   if (selected) pos.selected = pos.y;
   pos.y += ROW;
   const r = h_flex()
@@ -178,13 +191,13 @@ function row(v, t, space, tab, all, ts, selected, pos) {
     .text_color(selected ? t.foreground : t.muted)
     .hover((s) => s.bg(t.rowHover))
     .on_hover((on, cx) => { if (on) v.hoverRow = tab.id; else if (v.hoverRow === tab.id) v.hoverRow = null; cx.notify(); })
-    .on_click(() => select(space, tab))
+    .on_click(() => go())
     .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: space.id } } }))
     .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, stateOf(tab.status, true, reportOf(p?.terminal, ts)))))
     .child(title(t, tabTitle(tab, all), Boolean(p?.terminal) && isUnread(tab.status, p.terminal, ts), kids > 0 && !open, kids))
     .children(stats(t, badges(v.stats?.[p?.terminal], SHOW.rowCpu, SHOW.rowMem)))
     .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === tab.id || !open)));
-  return [r, ...(kids > 0 && open ? subRows(v, t, p.terminal, 1, all, ts, pos) : [])];
+  return [r, ...(kids > 0 && open ? subRows(v, t, p.terminal, 1, go, showing, ts, pos) : [])];
 }
 
 function addRow(t, space, section, pos) {

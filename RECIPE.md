@@ -77,7 +77,9 @@ agent you're on fills the rest of the window.
 - **Sub-agents.** A terminal's sub-agents (`hc run` children) and its helper records (OSC 7501
   records, as Claude Code's subagents) list under it. A sub-agent's done shows idle; a finished
   helper shows stopped. Hovering a parent shows a fold chevron, and folded it reads
-  "(+N subagents)". Clicking a sub-agent peeks at it; clicking a helper focuses its agent.
+  "(+N subagents)". Clicking a sub-agent shows it in its tab's pane in place of the parent's
+  terminal, and the blue bar, header and footer follow it; clicking a helper shows its agent.
+  Clicking the parent's row, or Close in the header, brings the parent back.
 - **Rows.** Click selects the space and tab. Right-click opens herdr's tab menu, or its space
   menu on a project header. The project chevron folds a project, and a section's chevron folds
   the section; folds persist. The blue bar slides to the selected row in 200 ms. Hovering a
@@ -119,7 +121,7 @@ agent you're on fills the rest of the window.
   `theme`, `settings`, `window`, `shared`, `setShared`, `exec`, `pickFolder`, `openOverlay`,
   `run`, `home`.
   - Commands: `space.select`, `tab.select`, `tab.new`, `space.new`, `pane.focus`,
-    `terminal.peek`, `pane.split`, `pane.zoom`, `pane.close`, `layout.select`, `app.settings`.
+    `terminal.show`, `pane.split`, `pane.zoom`, `pane.close`, `layout.select`, `app.settings`.
   - Shipped mods: `menu`, `new-menu`, and `mods/pane/split-right.svg`.
 - **Programs**: `ps -axo pid=,ppid=,pcpu=,rss=`, and `open {folder}`.
 - **Art**: Lucide icons (ISC) in `mods/whitby/icons/`, plus a filled bell made from Lucide's

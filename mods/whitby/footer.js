@@ -5,13 +5,13 @@ import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { terminals } from "herdr";
 import { palette, keyFor, subCount, stateOf, reportOf, STATE } from "./kit.js";
-import { current, focusLine } from "./header.js";
+import { current, shownIn, focusLine } from "./header.js";
 import { statusMark } from "./sidebar.js";
 
 // The agent's activity, with the sidebar's dot ("Working", "Needs you", ...).
-function activity(t, p) {
-  if (!p?.status) return null;
-  const state = stateOf(p.status, true, reportOf(p.terminal));
+function activity(t, status, address, live) {
+  if (!status) return null;
+  const state = stateOf(status, live, reportOf(address));
   return h_flex().flex_none().mr(12).gap(5).items_center().text_color(t.word[state] ?? t.footerMuted)
     .child(statusMark(t, state))
     .child(div().child(STATE[state]));
@@ -20,15 +20,20 @@ function activity(t, p) {
 export function footer(v) {
   const t = palette();
   const p = current();
+  // A shown sub-agent (see shownIn), else the pane's own terminal.
+  const k = shownIn(p);
+  const address = k ? k.address : p?.terminal;
+  const status = k ? k.status : p?.status;
+  const live = k ? k.state === "live" : true;
   const width = v.size?.width ?? 1000;
   const hint = (command, label) => {
     const key = keyFor(command);
     return key ? h_flex().flex_none().gap(4).items_center().child(div().child(key)).child(div().child(label)) : null;
   };
   const hints = [hint("agent.prev", "Prev"), hint("agent.next", "Next")].filter(Boolean);
-  const subs = subCount(p?.terminal, terminals());
-  const stat = v.stats?.[p?.terminal];
-  const process = p?.status ? p.program?.name : p?.title;
+  const subs = subCount(address, terminals());
+  const stat = v.stats?.[address];
+  const process = status ? (k ?? p).program?.name : (k ?? p)?.title;
   return h_flex()
     .id("whitby-footer")
     .size_full()
@@ -49,9 +54,9 @@ export function footer(v) {
     .when(Boolean(stat) && width >= 700, (el) => el
       .child(div().flex_none().mr(12).child(`CPU ${stat.cpu.toFixed(1)}%`))
       .child(div().flex_none().mr(12).child(`MEM ${Math.round(stat.mem / 1000000)} MB`)))
-    .when(Boolean(p?.status), (el) => el.child(activity(t, p)))
+    .when(Boolean(status), (el) => el.child(activity(t, status, address, live)))
     // One state at a time: an agent's own, else a live terminal's "Running".
-    .when(Boolean(p?.terminal) && !p?.status, (el) => el.child(h_flex().flex_none().gap(5).items_center().text_color(t.live)
+    .when(Boolean(address) && !status && live, (el) => el.child(h_flex().flex_none().gap(5).items_center().text_color(t.live)
       .child(statusMark(t, "running"))
       .child(div().child("Running"))));
 }
