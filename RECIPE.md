@@ -75,11 +75,13 @@ agent you're on fills the rest of the window.
   clicking it focuses the most urgent (error, blocked, needs you, done). What's read is kept in
   `shared("whitby.read")`.
 - **Sub-agents.** A terminal's sub-agents (`hc run` children) list under it, as herdr's agents
-  list counts them; its OSC 7501 records (Grok's loops and monitors) have no terminal and
-  aren't listed. A sub-agent's done shows idle; a finished one shows stopped. Hovering a parent
-  shows a fold chevron, and folded it reads "(+N subagents)". Clicking a sub-agent shows it in
-  its tab's pane in place of the parent's terminal, and the blue bar, header and footer follow
-  it. Clicking the parent's row, or Close in the header, brings the parent back.
+  list counts them; its OSC 7501 records (Claude Code's subagents, Grok's subagents and loop
+  runs) have no terminal and aren't listed. Instead the row shows "+N", 10 px `muted`, before
+  its badges: the records not done or error. A sub-agent's done shows idle; a finished one
+  shows stopped. Hovering a parent shows a fold chevron, and folded it reads "(+N subagents)".
+  Clicking a sub-agent shows it in its tab's pane in place of the parent's terminal, and the
+  blue bar, header and footer follow it. Clicking the parent's row, or Close in the header,
+  brings the parent back.
 - **Rows.** Click selects the space and tab. Right-click opens herdr's tab menu, or its space
   menu on a project header. The project chevron folds a project, and a section's chevron folds
   the section; folds persist. The blue bar slides to the selected row in 200 ms. Hovering a

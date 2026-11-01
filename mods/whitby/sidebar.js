@@ -5,7 +5,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, terminals, focused, run, openOverlay, window, exec, layout } from "herdr";
-import { palette, alpha, icon, lead, tabTitle, subCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, SHOW } from "./kit.js";
+import { palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, SHOW } from "./kit.js";
 
 const SECTIONS = [
   { id: "agents", label: "AGENTS", icon: "sparkles", add: "Add agent" },
@@ -99,6 +99,13 @@ function stats(t, list) {
   return list.length ? [h_flex().flex_none().gap(4).text_size(10).text_color(t.muted).children(list.map((b) => div().child(b)))] : [];
 }
 
+// "+N" on a row while its agent reports subagents of its own running (see helperCount),
+// in the badges' style, before them.
+function helpers(t, id, n) {
+  return n ? [div().id(`helpers-${id}`).flex_none().text_size(10).text_color(t.muted)
+    .tooltip(`${n} ${n === 1 ? "subagent" : "subagents"} running`).child(`+${n}`)] : [];
+}
+
 // Every terminal a space runs: its panes' and the sub-agents under them.
 function spaceTerminals(space, all, ts) {
   const tabs = new Set(space.tabs.map((tab) => tab.id));
@@ -162,6 +169,7 @@ function subRows(v, t, address, depth, go, showing, ts, pos) {
       .on_click(() => go(c.address))
       .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
       .child(title(t, childTitle(c), false, kids > 0 && !open, kids))
+      .children(helpers(t, c.key, helperCount(c.address, ts)))
       .children(stats(t, badges(v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem)))
       .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === c.key || !open)));
     return [r, ...(kids > 0 && open ? subRows(v, t, c.address, depth + 1, go, showing, ts, pos) : [])];
@@ -195,6 +203,7 @@ function row(v, t, space, tab, all, ts, selected, pos) {
     .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: space.id } } }))
     .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, stateOf(tab.status, true, reportOf(p?.terminal, ts)))))
     .child(title(t, tabTitle(tab, all), Boolean(p?.terminal) && isUnread(tab.status, p.terminal, ts), kids > 0 && !open, kids))
+    .children(helpers(t, tab.id, helperCount(p?.terminal, ts)))
     .children(stats(t, badges(v.stats?.[p?.terminal], SHOW.rowCpu, SHOW.rowMem)))
     .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === tab.id || !open)));
   return [r, ...(kids > 0 && open ? subRows(v, t, p.terminal, 1, go, showing, ts, pos) : [])];

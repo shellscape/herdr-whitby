@@ -25,9 +25,12 @@ Version 0.1.0.
   error, pulsing red is blocked on an approval, and pulsing purple needs you (a question, a
   sign-in or no reason given).
 - **Nested sub-agents.** Agents an agent starts as terminals (`hc run`) nest under it, as
-  herdr's agents list counts them. Work an agent only reports about itself (OSC 7501 records,
-  such as Grok's loops and monitors) has no terminal to show and isn't listed. Hover a parent
-  to fold them; folded, it reads "(+2 subagents)".
+  herdr's agents list counts them. Hover a parent to fold them; folded, it reads
+  "(+2 subagents)".
+- **Running subagents.** Work an agent reports about itself has no terminal to list, so its row
+  counts what is still running as "+N" on the right: OSC 7501 records, such as Claude Code's
+  subagents and Grok's subagents and loop runs. Grok's monitors aren't reported this way, so
+  they aren't counted.
 - **Unread dots and the attention bell.** An agent that finished, is blocked, needs you or failed
   is unread until you look at it, and carries a small blue dot. The bell in the top-right corner
   counts them; click it to go to the most urgent one.

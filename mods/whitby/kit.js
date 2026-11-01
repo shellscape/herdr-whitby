@@ -112,6 +112,14 @@ export function subCount(address, all = terminals()) {
   return children(address, all).reduce((n, c) => n + 1 + subCount(c.address, all), 0);
 }
 
+// The subagents a terminal's program reports about its own work, still running: its OSC
+// 7501 records (Claude Code's subagents, Grok's loop runs) that haven't finished
+// (done, or error for failed). They have no terminal to list, so a row counts them as "+N".
+export function helperCount(address, all = terminals()) {
+  const own = all.find((k) => k.address === address)?.records ?? {};
+  return Object.values(own).filter((r) => r.state !== "done" && r.state !== "error").length;
+}
+
 // What a terminal says about itself (herdr-core's words): its status, which can be
 // "error" where herdr's agent lists only say blocked, and what a block waits on
 // (permission, question or auth), when the program says.
