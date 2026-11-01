@@ -10,12 +10,13 @@ import { header } from "./header.js";
 import { footer } from "./footer.js";
 import { initHome, home } from "./home.js";
 import { sampleStats } from "./kit.js";
+import { initUsage } from "./usage.js";
 
 export default class Whitby extends View {
   init(_props, cx) {
     this.part = props()?.part;
     if (this.part === "sidebar") initSidebar(this, cx);
-    if (this.part === "footer") sampleStats(this, cx);
+    if (this.part === "footer") { sampleStats(this, cx); initUsage(this, cx); }
     if (this.part === "home") initHome(this);
   }
 

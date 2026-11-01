@@ -1,5 +1,5 @@
-// Whitby's agent footer (src/ui/terminal_view.rs live footer): 42px, key hints on
-// the left; the process title, sub-agents and its state on the right.
+// Whitby's agent footer (src/ui/terminal_view.rs live footer): 42px, key hints and the
+// agent's plan usage on the left; the process title, sub-agents and its state on the right.
 
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -7,6 +7,7 @@ import { terminals } from "herdr";
 import { palette, keyFor, subCount, stateOf, reportOf, STATE } from "./kit.js";
 import { current, shownIn, focusLine } from "./header.js";
 import { statusMark } from "./sidebar.js";
+import { usage, providerOf } from "./usage.js";
 
 // The agent's activity, with the sidebar's dot ("Working", "Needs you", ...).
 function activity(t, status, address, live) {
@@ -34,6 +35,8 @@ export function footer(v) {
   const subs = subCount(address, terminals());
   const stat = v.stats?.[address];
   const process = status ? (k ?? p).program?.name : (k ?? p)?.title;
+  // Only the agent in view shows its account's usage.
+  const provider = providerOf(k ?? p);
   return h_flex()
     .id("whitby-footer")
     .size_full()
@@ -45,7 +48,7 @@ export function footer(v) {
     .text_size(11)
     .text_color(t.footerMuted)
     .on_size_change((size, cx) => { v.size = size; cx.notify(); })
-    .child(h_flex().flex_none().gap(width < 500 ? 6 : 16).items_center().children(hints))
+    .child(h_flex().flex_none().gap(width < 500 ? 6 : 16).items_center().children([...hints, ...(provider ? [usage(t, provider, v.usage[provider], v.sessions?.[address])] : [])]))
     .child(div().flex_1().min_w(0))
     // The process title: an agent's tool ("Codex", as Solo shows it), a shell's own title.
     .when(Boolean(process) && width >= 500, (el) => el.child(div().mr(12).max_w(180).min_w(0).truncate().child(process)))

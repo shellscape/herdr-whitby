@@ -32,8 +32,13 @@ Version 0.1.0.
   is unread until you look at it, and carries a small blue dot. The bell in the top-right corner
   counts them; click it to go to the most urgent one.
 - **Agent page.** A header with the agent's name and "tool · state", plus Split, Zoom and Close.
-  A footer with your own Prev/Next keys and the agent's tool, sub-agent count, CPU, memory and
-  state.
+  A footer with your own Prev/Next keys, the agent's plan usage, and its tool, sub-agent count,
+  CPU, memory and state.
+- **Plan usage.** On a Claude, Codex or Grok agent, the footer shows its account's limits as
+  thin bars: Claude's five-hour session over its weekly limit, and Codex's and Grok's as they
+  report them. Hover for each one's share used and the time until it resets. A Grok team seat
+  has no share to show, so it reads "Grok (Team) Cost: $41.91" with the session's tokens on
+  hover, as Grok's `/usage` does.
 - **Resource badges.** CPU and memory badges on rows and project headers once they cross
   Whitby's thresholds: 30% CPU or 500 MB for an agent, 25% or 1 GB for a project.
 - **Readable titles.** It trims what agents add to their titles, such as Grok's " - grok",
@@ -67,8 +72,19 @@ The two theme files matter: the layout names them for light and dark, and the us
 layout-install steps (a layout file plus its mods) don't copy `themes/`.
 
 What the mod does beyond drawing: while the window is in front it runs `ps` every 3 seconds for
-the CPU and memory figures, and Reveal in Finder runs `open` on the project's folder. It reads no
-files outside its folder and makes no network requests.
+the CPU and memory figures, and Reveal in Finder runs `open` on the project's folder.
+
+For plan usage, while an agent of that kind runs it reads the agent's own sign-in and asks only
+that agent's provider, at once and then every two minutes:
+
+- Claude Code: the `Claude Code-credentials` login keychain item, read with `security`;
+  `api.anthropic.com`.
+- Codex: `~/.codex/auth.json`; `chatgpt.com`.
+- Grok: `~/.grok/auth.json`; `cli-chat-proxy.grok.com`. On a team seat it also reads
+  `~/.grok/active_sessions.json` and the session's `usage.json` every 15 seconds.
+
+Tokens are held only for the request. They are never saved, shown or sent anywhere else, and
+never renewed: each CLI renews its own.
 
 ## Develop
 
@@ -83,6 +99,7 @@ mods/whitby/          one mod; props.part picks what each block draws
   titlebar.js bell.js the title bar and the attention bell
   rail.js             the rail and its buttons (and the hover/press layers the bell uses too)
   header.js footer.js the agent page's header and footer
+  usage.js            the footer's plan usage: each agent's sign-in, its provider, the bars
   home.js             the Projects page
 RECIPE.md             the brief Herdr's community format asks for: what to build, exactly
 scripts/              the demo
