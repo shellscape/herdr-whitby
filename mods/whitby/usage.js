@@ -1,11 +1,13 @@
 // Plan usage for the agent in view, in the agent footer: thin bars for its limits (Claude's
 // five-hour session over its weekly limit; Codex's and Grok's as they report them), shown
-// only while the pane runs that agent. The tooltip gives each one's share used and the
-// time until it resets. A Grok team seat has no share to show (its team manages its
-// limits), so it shows what the session has cost so far, as Grok's /usage does.
+// only while the pane runs that agent. Resting the pointer on them opens a card with each
+// one's share used and the time until it resets. A Grok team seat has no share to show (its
+// team manages its limits), so it shows what the session has cost so far, as Grok's /usage
+// does.
 //
 // Plain elements only: gpui-base's HoverCard and Progress parts are native components, and
-// building them as the footer redraws held up the whole window on every click.
+// building them as the footer redraws held up the whole window on every click. The card is
+// drawn in an overlay of its own instead (see usageCard).
 //
 // An account is read while one of its agents runs anywhere: at once, then every two
 // minutes. Tokens come from where each CLI keeps its sign-in (Claude Code: the login
@@ -14,8 +16,8 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, readTextFile, home, terminals, panes } from "herdr";
-import { alpha } from "./kit.js";
+import { exec, readTextFile, home, terminals, panes, openOverlay, closeOverlay, settings, window } from "herdr";
+import { alpha, palette } from "./kit.js";
 
 const STALE = 120000;
 
@@ -133,7 +135,7 @@ export function providerOf(x) {
 // Keeps v.usage[provider] = { windows, team, updated, error } for every account an agent
 // runs on, in a pane or in a live terminal (a sub-agent has a terminal and no pane). One
 // reading serves every tab of that account. A failed read keeps the last figures, with the
-// error in the tooltip. Checks every 15s, so a new agent's account is read soon after it
+// error in the card. Checks every 15s, so a new agent's account is read soon after it
 // starts; on a Grok team seat, each session's cost (v.sessions) is read every check.
 export function initUsage(v, cx) {
   v.usage = {};
@@ -189,9 +191,9 @@ function resetText(at, now = Date.now()) {
   return `resets in ${d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`}`;
 }
 
-// The tooltip, a line each: "Claude", "Session 11% used, resets in 3h 40m", "Weekly 42%
-// used, resets in 3d 19h", "Updated 1m ago", and any error after it. A team seat's gives
-// the session's cost, tokens and model calls instead.
+// What the bars say, for screen readers, a line each: "Claude", "Session 11% used, resets
+// in 3h 40m", "Weekly 42% used, resets in 3d 19h", "Updated 1m ago", and any error after it.
+// A team seat's gives the session's cost, tokens and model calls instead.
 function details(p, u, session) {
   const parts = [u.team ? `${p.name} (Team)` : p.name];
   if (u.team) {
@@ -209,27 +211,158 @@ function details(p, u, session) {
   return parts.join("\n");
 }
 
-function bar(t, w) {
-  return div().w_full().h(6).rounded(1.5).bg(alpha(t.footerMuted, 0.25))
-    .child(div().h_full().w(`${Math.min(100, w.used)}%`).rounded(1.5).bg(level(t, w.used) ?? t.blue));
+function bar(t, used, height, track) {
+  return div().w_full().h(height).rounded(1.5).bg(track)
+    .child(div().h_full().w(`${Math.min(100, used)}%`).rounded(1.5).bg(level(t, used) ?? t.blue));
+}
+
+// The card: drawn by a Whitby copy of its own in an overlay above the bars (as herdr's own
+// popups are), so building it costs the footer nothing. CARD is its width; the overlay is
+// taller, see-through, with the card at its bottom and room around it for the shadow.
+const CARD = 232, ROOM = 8, TALL = 300, DELAY = 400;
+
+const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+function meter(t, w) {
+  return v_flex()
+    .gap(4)
+    .child(h_flex().items_center().justify_between()
+      .child(div().text_size(11.5).text_color(t.foreground).child(w.label))
+      .child(div().text_size(11.5).font_weight(600).text_color(level(t, w.used) ?? t.foreground).child(`${percent(w.used)} used`)))
+    .child(bar(t, w.used, 3, alpha(t.muted, 0.15)))
+    .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(capital(resetText(w.reset))));
+}
+
+function fact(t, label, value) {
+  return h_flex().items_center().justify_between()
+    .child(div().text_size(11.5).text_color(t.foreground).child(label))
+    .child(div().text_size(11.5).font_weight(600).text_color(t.foreground).child(value));
+}
+
+// The overlay copy's whole view: props().card = { id, u, session } from the footer.
+export function usageCard(card) {
+  const t = palette();
+  const p = PROVIDERS[card?.id];
+  if (!p) return div();
+  const u = card.u ?? {}, session = card.session;
+  const updated = u.updated && u.windows?.length ? Math.floor((Date.now() - u.updated) / 60000) : null;
+  return v_flex()
+    .size_full()
+    .justify_end()
+    .px(ROOM)
+    .pb(ROOM)
+    // A press on an overlay window would otherwise drag it.
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .child(v_flex()
+      .w_full()
+      .p(12)
+      .gap(10)
+      .bg(t.popover)
+      .border(1)
+      .border_color(t.border)
+      .rounded(8)
+      .shadow_md()
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_none().text_size(10).font_weight(600).text_color(alpha(t.muted, 0.6)).child((u.team ? `${p.name} (Team)` : p.name).toUpperCase()))
+        .child(div().flex_1().min_w(0).h(1).bg(alpha(t.muted, 0.15)))
+        .when(updated != null, (el) => el.child(div().flex_none().text_size(10).text_color(alpha(t.muted, 0.5)).child(updated < 1 ? "Updated just now" : `Updated ${updated}m ago`))))
+      .when(Boolean(u.team), (el) => el
+        .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(`Usage limits are managed by ${u.team}`))
+        .child(session
+          ? v_flex().gap(4)
+            .child(fact(t, "Session cost", dollars(session.cost)))
+            .child(fact(t, "Tokens", count(session.tokens)))
+            .child(fact(t, "Cached", count(session.cached)))
+            .child(fact(t, "Model calls", count(session.calls)))
+          : div().text_size(11.5).text_color(t.muted).child("No session usage yet")))
+      .children((u.windows ?? []).map((w) => meter(t, w)))
+      .when(Boolean(u.error), (el) => el.child(v_flex().gap(2)
+        .child(div().text_size(11.5).font_weight(600).text_color(t.warn).child(u.error.title))
+        .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(u.error.detail))))
+      .when(!u.windows && !u.error, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Reading usage…"))));
+}
+
+function closeCard(v) {
+  v.cardHover = false;
+  v.cardGen = (v.cardGen ?? 0) + 1;
+  if (v.cardId) closeOverlay(v.cardId);
+  v.cardId = null;
+}
+
+// Called on every footer render with the agent in view ("claude:t7", or null): closes the
+// card, and drops one waiting to open, once that changes or the window goes to the back.
+// A tab switch gives no hover-out: by keyboard the pointer is still on the bars, and bars
+// that go away with their tab get no event at all.
+export function syncCard(v, key) {
+  const stale = v.cardKey !== key || window()?.active === false;
+  v.cardKey = key;
+  if (stale && (v.cardId || v.cardHover)) closeCard(v);
+}
+
+// Whether the pointer is on the bars: v.cardBox, their bounds in the window from the
+// pointer's last move on them, against GPUI's window (the global Herdr's window() hides).
+function pointerOn(v) {
+  const b = v.cardBox, p = globalThis.window?.mouse_position?.();
+  if (!b || !p) return true;
+  return p.x >= b.x - 1 && p.x <= b.x + b.width + 1 && p.y >= b.y - 1 && p.y <= b.y + b.height + 1;
+}
+
+// Opens the card once the pointer has rested on the bars for DELAY, above them, and closes
+// it when the pointer leaves (and see syncCard). A window overlay, unlike a popup, leaves
+// the keyboard with the terminal.
+function hover(v, on, cx, card) {
+  if (!on) return closeCard(v);
+  v.cardHover = true;
+  const gen = (v.cardGen = (v.cardGen ?? 0) + 1);
+  cx.timer.after(DELAY, (cx) => {
+    if (!v.cardHover || v.cardGen !== gen || v.cardId || !v.cardBox) return;
+    if (!pointerOn(v)) return closeCard(v);
+    // An overlay's size follows the zoom; `at`, like the pointer's position, doesn't.
+    const z = Number(settings()?.zoom) || 1;
+    v.cardId = openOverlay({
+      mod: "whitby",
+      kind: "window",
+      frame: "none",
+      width: CARD + ROOM * 2,
+      height: TALL,
+      at: { x: Math.max(0, v.cardBox.x - ROOM * z), y: Math.max(0, v.cardBox.y - (6 - ROOM + TALL) * z) },
+      props: { part: "usage-card", card },
+    });
+    // A quick move off the bars can come without their hover-out, and nothing redraws the
+    // footer when the window goes to the back: so while it is open, the card checks.
+    const open = v.cardId;
+    const watch = (cx) => {
+      if (v.cardId !== open) return;
+      if (window()?.active === false || !pointerOn(v)) closeCard(v);
+      else cx.timer.after(150, watch);
+    };
+    cx.timer.after(150, watch);
+  });
 }
 
 // The footer's usage for one account (see providerOf): its bars, or on a team seat the
-// cost of the session in view.
-export function usage(t, id, u = {}, session = null) {
+// cost of the session in view. Resting the pointer on it opens the card.
+export function usage(t, id, u = {}, session = null, v = {}) {
   const p = PROVIDERS[id];
   const text = details(p, u, session);
   const el = h_flex()
-    .id("whitby-usage")
+    // Its own id per agent, so the bars of the next agent take a fresh hover.
+    .id(`whitby-usage-${v.cardKey ?? id}`)
     .flex_none()
     .gap(6)
     .items_center()
-    .tooltip(text)
-    .accessibility_label(text);
+    .accessibility_label(text)
+    // A move on the bars also starts the wait again when nothing is open or waiting, as
+    // after syncCard closed the card while the pointer stayed on them.
+    .on_mouse_move((e, cx) => {
+      v.cardBox = e.bounds;
+      if (!v.cardHover && !v.cardId) hover(v, true, cx, { id, u, session });
+    })
+    .on_hover((on, cx) => hover(v, on, cx, { id, u, session }));
   if (u.team) return el.child(div().child(`${p.name} (Team)`)).child(div().child(`Cost: ${session ? dollars(session.cost) : "–"}`));
   // Without figures yet, the bars are faint empty tracks.
   const windows = u.windows ?? Array.from({ length: p.slots }, () => ({ used: 0 }));
   return el
     .child(div().child(p.name))
-    .child(v_flex().w(72).gap(4).opacity(u.windows ? 1 : 0.5).children(windows.map((w) => bar(t, w))));
+    .child(v_flex().w(72).gap(4).opacity(u.windows ? 1 : 0.5).children(windows.map((w) => bar(t, w.used, 6, alpha(t.footerMuted, 0.25)))));
 }

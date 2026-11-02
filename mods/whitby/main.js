@@ -1,5 +1,6 @@
 // Whitby: herdr dressed as the Whitby desktop app. One mod draws each part of
-// the layout, picked by props().part: titlebar, rail, sidebar, header, footer, home.
+// the layout, picked by props().part: titlebar, rail, sidebar, header, footer, home, and
+// the footer's usage card (usage-card).
 
 import { View, div } from "gpui-kit";
 import { props } from "herdr";
@@ -10,7 +11,7 @@ import { header } from "./header.js";
 import { footer } from "./footer.js";
 import { initHome, home } from "./home.js";
 import { sampleStats } from "./kit.js";
-import { initUsage } from "./usage.js";
+import { initUsage, usageCard } from "./usage.js";
 
 export default class Whitby extends View {
   init(_props, cx) {
@@ -28,6 +29,8 @@ export default class Whitby extends View {
       case "header": return header();
       case "footer": return footer(this);
       case "home": return home(this);
+      // The usage card, in an overlay the footer opens (see usage.js).
+      case "usage-card": return usageCard(props()?.card);
       default: return div();
     }
   }

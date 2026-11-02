@@ -7,7 +7,7 @@ import { terminals } from "herdr";
 import { palette, keyFor, subCount, stateOf, reportOf, STATE } from "./kit.js";
 import { current, shownIn, focusLine } from "./header.js";
 import { statusMark } from "./sidebar.js";
-import { usage, providerOf } from "./usage.js";
+import { usage, providerOf, syncCard } from "./usage.js";
 
 // The agent's activity, with the sidebar's dot ("Working", "Needs you", ...).
 function activity(t, status, address, live) {
@@ -37,6 +37,7 @@ export function footer(v) {
   const process = status ? (k ?? p).program?.name : (k ?? p)?.title;
   // Only the agent in view shows its account's usage.
   const provider = providerOf(k ?? p);
+  syncCard(v, provider ? `${provider}:${address}` : null);
   return h_flex()
     .id("whitby-footer")
     .size_full()
@@ -48,7 +49,7 @@ export function footer(v) {
     .text_size(11)
     .text_color(t.footerMuted)
     .on_size_change((size, cx) => { v.size = size; cx.notify(); })
-    .child(h_flex().flex_none().gap(width < 500 ? 6 : 16).items_center().children([...hints, ...(provider ? [usage(t, provider, v.usage[provider], v.sessions?.[address])] : [])]))
+    .child(h_flex().flex_none().gap(width < 500 ? 6 : 16).items_center().children([...hints, ...(provider ? [usage(t, provider, v.usage[provider], v.sessions?.[address], v)] : [])]))
     .child(div().flex_1().min_w(0))
     // The process title: an agent's tool ("Codex", as Solo shows it), a shell's own title.
     .when(Boolean(process) && width >= 500, (el) => el.child(div().mr(12).max_w(180).min_w(0).truncate().child(process)))

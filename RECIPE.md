@@ -50,7 +50,13 @@ agent you're on fills the rest of the window.
 - **Terminal**, Geist Mono 13 px, padding 8 px. Split panes have a 1 px gap and an `accent`
   outline on the focused one.
 - **Footer**, 42 px, `#f8f8fa` (`#202632`), 11 px `#60646c`, with a top line blue while focused.
-  On the left are the keys bound to `agent.prev` and `agent.next` ("⌘[ Prev", "⌘] Next"). On the
+  On the left are the keys bound to `agent.prev` and `agent.next` ("⌘[ Prev", "⌘] Next"), then,
+  on a Claude, Codex or Grok agent, its account's plan usage: the provider's name and a 72 px
+  stack of 6 px bars, one per limit. Resting the pointer on them for 400 ms opens a 232 px card
+  just above them: the provider in small caps with "Updated Nm ago", then per limit its name,
+  "N% used" and a 3 px bar over when it resets (a Grok team seat: who manages its limits, and
+  the session's cost, tokens, cached tokens and model calls). It closes when the pointer
+  leaves, the agent changes or the window goes to the back. On the
   right are the tool name (a shell shows its title), "+N sub-agents", "CPU x.x%" and
   "MEM N MB" (from 700 px wide), and the state with its dot.
 - **Projects page**, instead of the agent page, while there are no spaces. It's a centered
@@ -123,7 +129,9 @@ agent you're on fills the rest of the window.
         radius 0, `focus` accent, block background `border`) and `agent-footer` (42 px).
       - `home`: the Projects page.
   Every block but `main` is the mod `whitby` with `props.part`: `titlebar`, `rail`, `sidebar`,
-  `header`, `footer` or `home`.
+  `header`, `footer` or `home`. The usage card is one more copy, `usage-card`, in a `window`
+  overlay with `frame: "none"` (unlike a popup, a window leaves the keyboard with the terminal)
+  that the footer opens with the card's figures in `props.card`.
 - **Mod** `mods/whitby` (`place: "none"`):
   - `main.js` dispatches on `props().part`.
   - `kit.js`: palette, title cleanup, states, unread, sub-agents, CPU and memory.
@@ -132,7 +140,7 @@ agent you're on fills the rest of the window.
   - `rail.js` exports the hover, press and tooltip helpers the bell uses.
 - **herdr API** used: `spaces`, `panes`, `terminals`, `agents`, `focused`, `layout`, `keys`,
   `theme`, `settings`, `window`, `shared`, `setShared`, `exec`, `pickFolder`, `openOverlay`,
-  `run`, `home`.
+  `closeOverlay`, `run`, `home`.
   - Commands: `space.select`, `tab.select`, `tab.new`, `space.new`, `pane.focus`,
     `terminal.show`, `pane.split`, `pane.zoom`, `pane.close`, `layout.select`, `app.settings`.
   - Shipped mods: `menu`, `new-menu`, and `mods/pane/split-right.svg`.

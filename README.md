@@ -43,9 +43,9 @@ Version 0.1.0.
   CPU, memory and state.
 - **Plan usage.** On a Claude, Codex or Grok agent, the footer shows its account's limits as
   thin bars: Claude's five-hour session over its weekly limit, and Codex's and Grok's as they
-  report them. Hover for each one's share used and the time until it resets. A Grok team seat
-  has no share to show, so it reads "Grok (Team) Cost: $41.91" with the session's tokens on
-  hover, as Grok's `/usage` does.
+  report them. Rest the pointer on them for a card with each one's share used and the time until
+  it resets. A Grok team seat has no share to show, so it reads "Grok (Team) Cost: $41.91" with
+  the session's tokens in its card, as Grok's `/usage` does.
 - **Resource badges.** CPU and memory badges on rows and project headers once they cross
   Whitby's thresholds: 30% CPU or 500 MB for an agent, 25% or 1 GB for a project. Hover a row's
   badges for both figures.
@@ -107,7 +107,7 @@ mods/whitby/          one mod; props.part picks what each block draws
   titlebar.js bell.js the title bar and the attention bell
   rail.js             the rail and its buttons (and the hover/press layers the bell uses too)
   header.js footer.js the agent page's header and footer
-  usage.js            the footer's plan usage: each agent's sign-in, its provider, the bars
+  usage.js            the footer's plan usage: each agent's sign-in, its provider, the bars and card
   home.js             the Projects page
 RECIPE.md             the brief Herdr's community format asks for: what to build, exactly
 scripts/              the demo
