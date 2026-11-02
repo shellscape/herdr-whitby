@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+  <title>Claude Code</title>
+  <!-- Body with its two arms: one outline -->
+  <path d="M3.75 4.75H20.25V10.25H23.25V13.75H20.25V16.25H3.75V13.75H0.75V10.25H3.75Z"/>
+  <!-- Eyes -->
+  <path stroke-width="2" d="M8 8.5V10M16 8.5V10"/>
+  <!-- Feet: they start at the body's inner edge, so their tops don't show inside it -->
+  <path stroke-width="2" d="M5.5 16.5V19M9 16.5V19M15 16.5V19M18.5 16.5V19"/>
+</svg>

@@ -2,10 +2,10 @@
 // then each space as a project with a folding header and Agents and Terminals
 // sections. A row is a tab: agent tabs under Agents, plain shells under Terminals.
 
-import { div } from "gpui-kit";
+import { div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, terminals, focused, run, openOverlay, window, exec, layout } from "herdr";
-import { palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, SHOW } from "./kit.js";
+import { ICON, palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, cpuText, memText, SHOW } from "./kit.js";
 
 const SECTIONS = [
   { id: "agents", label: "AGENTS", icon: "sparkles", add: "Add agent" },
@@ -14,6 +14,10 @@ const SECTIONS = [
 
 // Row geometry, for the one selection bar that slides between rows.
 const ROW = 28, HEADER = 42, SECTION_GAP = 7, BODY_PAD = 5.25;
+
+// The sidebar's extra left inset, on top of each row's own padding. Backgrounds and the
+// selection bar still run to the edge.
+const PAD = 8;
 
 export function initSidebar(v, cx) {
   sampleStats(v, cx);
@@ -90,13 +94,34 @@ export function statusMark(t, state) {
   return PULSE.has(state) ? dot.loop("opacity", { from: 0.35, to: 1, period: 1600, easing: "ease-in-out" }) : dot;
 }
 
+// Whitby's own one-color outlines for agents whose herdr icon doesn't fit beside the others:
+// by herdr's program key, or by the name the agent reports (herdr's table doesn't know
+// Grok's "grok-build", so it would get the generic agent icon).
+const GLYPHS = { claude: ICON("clawd"), codex: ICON("codex"), "grok-build": "icons/grok.svg" };
+
+// A row's leading column, the width of the section's fold arrow and right under it: an
+// agent's icon (Whitby's own, else herdr's: a one-color glyph or a picture), at 20%
+// opacity unless its pane has the focus. Empty for a shell, so every row lines up.
+// Centered on the row, as the selection bar is.
+function agentIcon(p, on) {
+  const prog = p?.program;
+  const own = GLYPHS[prog?.key] ?? GLYPHS[p?.app];
+  const glyph = own ? svg(own).size(16)
+    : prog?.icon ? (prog.tint ? svg(prog.icon).size(16) : image(prog.icon).w(16).h(16)) : null;
+  return h_flex().w(21).flex_none().justify_center().items_center().opacity(on ? 1 : 0.2)
+    .when(Boolean(glyph), (el) => el.child(glyph.flex_none()));
+}
+
 // Each level of sub-agents starts under its parent's title: past the 14px mark and its gap.
 const NEST = 14 + 5.25;
 
 // Whitby's resource badges on a row or a project header: 10px, muted.
-// A list, so a row with nothing to show gets no element (and no gap) at all.
-function stats(t, list) {
-  return list.length ? [h_flex().flex_none().gap(4).text_size(10).text_color(t.muted).children(list.map((b) => div().child(b)))] : [];
+// A list, so a row with nothing to show gets no element (and no gap) at all. On a row
+// (given its id and figures), hovering shows both its CPU and memory.
+function stats(t, list, id, stat) {
+  if (!list.length) return [];
+  const el = id ? h_flex().id(`stats-${id}`).tooltip(`CPU ${cpuText(stat.cpu)} · Memory ${memText(stat.mem)}`) : h_flex();
+  return [el.flex_none().gap(4).text_size(10).text_color(t.muted).children(list.map((b) => div().child(b)))];
 }
 
 // "+N" on a row while its agent reports subagents of its own running (see helperCount),
@@ -158,7 +183,7 @@ function subRows(v, t, address, depth, go, showing, ts, pos) {
       .id(`sub-${c.key}`)
       .h(ROW)
       .flex_none()
-      .pl(31.5 + NEST * depth)
+      .pl(31.5 + PAD + NEST * depth)
       .pr(10.5)
       .gap(5.25)
       .items_center()
@@ -170,7 +195,7 @@ function subRows(v, t, address, depth, go, showing, ts, pos) {
       .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
       .child(title(t, childTitle(c), false, kids > 0 && !open, kids))
       .children(helpers(t, c.key, helperCount(c.address, ts)))
-      .children(stats(t, badges(v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem)))
+      .children(stats(t, badges(v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem), c.key, v.stats?.[c.address]))
       .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === c.key || !open)));
     return [r, ...(kids > 0 && open ? subRows(v, t, c.address, depth + 1, go, showing, ts, pos) : [])];
   });
@@ -191,7 +216,7 @@ function row(v, t, space, tab, all, ts, selected, pos) {
     .id(`row-${tab.id}`)
     .h(ROW)
     .flex_none()
-    .pl(31.5)
+    .pl(5.25 + PAD)
     .pr(10.5)
     .gap(5.25)
     .items_center()
@@ -201,10 +226,11 @@ function row(v, t, space, tab, all, ts, selected, pos) {
     .on_hover((on, cx) => { if (on) v.hoverRow = tab.id; else if (v.hoverRow === tab.id) v.hoverRow = null; cx.notify(); })
     .on_click(() => go())
     .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: space.id } } }))
+    .child(agentIcon(tab.status ? p : null, Boolean(p) && f?.pane === p.pane))
     .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, stateOf(tab.status, true, reportOf(p?.terminal, ts)))))
     .child(title(t, tabTitle(tab, all), Boolean(p?.terminal) && isUnread(tab.status, p.terminal, ts), kids > 0 && !open, kids))
     .children(helpers(t, tab.id, helperCount(p?.terminal, ts)))
-    .children(stats(t, badges(v.stats?.[p?.terminal], SHOW.rowCpu, SHOW.rowMem)))
+    .children(stats(t, badges(v.stats?.[p?.terminal], SHOW.rowCpu, SHOW.rowMem), tab.id, v.stats?.[p?.terminal]))
     .when(kids > 0, (el) => el.child(fold(v, t, key, open, v.hoverRow === tab.id || !open)));
   return [r, ...(kids > 0 && open ? subRows(v, t, p.terminal, 1, go, showing, ts, pos) : [])];
 }
@@ -215,7 +241,7 @@ function addRow(t, space, section, pos) {
     .id(`add-${space.id}-${section.id}`)
     .h(ROW)
     .flex_none()
-    .pl(31.5)
+    .pl(31.5 + PAD)
     .pr(10.5)
     .gap(5.25)
     .items_center()
@@ -238,7 +264,7 @@ function section(v, t, space, sec, tabs, first, all, ts, pos) {
     .id(`sec-${key}`)
     .h(ROW)
     .flex_none()
-    .px(10.5)
+    .pl(10.5 + PAD).pr(10.5)
     .gap(5.25)
     .items_center()
     .when(!first, (el) => el.mt(SECTION_GAP))
@@ -257,7 +283,9 @@ function section(v, t, space, sec, tabs, first, all, ts, pos) {
       .text_color(t.muted).opacity(v.hover === key ? 1 : 0).cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip(sec.add).on_click((_e, cx) => { cx.stop_propagation(); add(space, sec); })
       .child(icon("sidebar-plus", 10.5)))
-    .child(div().flex_none().text_size(10).text_color(alpha(t.muted, 0.5)).child(count));
+    .child(div().id(`sec-count-${key}`).flex_none().text_size(10).text_color(alpha(t.muted, 0.5))
+      .when(sec.id === "agents", (el) => el.tooltip(`${count} ${tabs.length === 1 ? "Agent" : "Agents"} Working`))
+      .child(count));
   if (!open) return [header];
   const shown = space.tabs.find((tab) => tab.active);
   const rows = tabs.flatMap((tab) => row(v, t, space, tab, all, ts, space.active && tab.id === shown?.id, pos));
@@ -296,7 +324,7 @@ function project(v, t, space, all, ts, pos) {
     .id(`proj-${space.id}`)
     .h(HEADER)
     .flex_none()
-    .px(10.5)
+    .pl(10.5 + PAD).pr(10.5)
     .gap(5.25)
     .items_center()
     .bg(t.front)
@@ -347,7 +375,7 @@ export function sidebar(v) {
   markRead(ts);
   const projects = spaces().flatMap((space) => project(v, t, space, all, ts, pos));
   // Whitby's selection: one blue bar, 85% of the row tall, sliding between rows in 200ms.
-  const bar = pos.selected === null ? [] : [div().id("whitby-selection").absolute().left(1.75).top(pos.selected + ROW * 0.075)
+  const bar = pos.selected === null ? [] : [div().id("whitby-selection").absolute().left(-0.25).top(pos.selected + ROW * 0.075)
     .w(3.5).h(ROW * 0.85).rounded_r(3.5).bg(t.blue).opacity(active ? 1 : 0.4)
     .transition("top", { duration: 200, easing: "ease-in-out" })];
   return v_flex()
@@ -355,7 +383,7 @@ export function sidebar(v) {
     .size_full()
     .min_h(0)
     .bg(t.chrome)
-    .child(h_flex().id("filter").h(35).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border).bg(t.canvas)
+    .child(h_flex().id("filter").h(35).flex_none().pl(8 + PAD).pr(8).gap(4).items_center().border_b(1).border_color(t.border).bg(t.canvas)
       .child(icon("search", 14, t.muted))
       .child(Input.new(v.input).flex_1().min_w(0).py(4).px(4).bg(t.field).text_size(13).text_color(t.foreground)))
     .child(v_flex().id("projects").relative().flex_1().min_h(0).overflow_y_scrollbar()

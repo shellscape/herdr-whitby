@@ -17,13 +17,17 @@ Version 0.1.0.
 ## Features
 
 - **Projects sidebar.** Each Herdr space is a project with a folding header, and its tabs sit
-  under **Agents** and **Terminals** with counts. A **Filter Projects** field narrows the list. A
+  under **Agents** and **Terminals** with counts; hover the Agents count for how many are
+  working. A **Filter Projects** field narrows the list. A
   `+` appears on a section's header when you hover it, and an empty section offers to add one.
   The selected row gets a blue bar that slides from row to row.
 - **Status dots.** A pulsing green dot means working, green means running, blue means done
   (finished while you were away), grey means idle and light grey means stopped. Solid red is an
   error, pulsing red is blocked on an approval, and pulsing purple needs you (a question, a
   sign-in or no reason given).
+- **Agent icons.** Each agent's row starts with its tool's icon, right under the section's
+  chevron, as a one-color outline: Whitby draws its own for Claude Code and Codex. An icon is
+  faint until its agent has the focus.
 - **Nested sub-agents.** Agents an agent starts as terminals (`hc run`) nest under it, as
   herdr's agents list counts them. Hover a parent to fold them; folded, it reads
   "(+2 subagents)".
@@ -43,7 +47,8 @@ Version 0.1.0.
   has no share to show, so it reads "Grok (Team) Cost: $41.91" with the session's tokens on
   hover, as Grok's `/usage` does.
 - **Resource badges.** CPU and memory badges on rows and project headers once they cross
-  Whitby's thresholds: 30% CPU or 500 MB for an agent, 25% or 1 GB for a project.
+  Whitby's thresholds: 30% CPU or 500 MB for an agent, 25% or 1 GB for a project. Hover a row's
+  badges for both figures.
 - **Readable titles.** It trims what agents add to their titles, such as Grok's " - grok",
   Codex's " | folder" and Muse's bare folder name. While Grok works, its row keeps its last real
   title instead of "Waiting for response...".
@@ -155,6 +160,6 @@ change in the demo in both light and dark before sending it.
 
 ## License
 
-[MPL 2.0](LICENSE). The icons in `mods/whitby/icons/` are [Lucide](https://lucide.dev) (ISC,
+[MPL 2.0](LICENSE). The interface icons in `mods/whitby/icons/` are [Lucide](https://lucide.dev) (ISC,
 [LICENSE.lucide](mods/whitby/icons/LICENSE.lucide)). The mark and the platter drawing are
 Whitby's own artwork, shared here under the same license.
