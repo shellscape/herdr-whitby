@@ -35,13 +35,14 @@ agent you're on fills the rest of the window.
     15%, a `+` that shows on hover, and a count at 50%. Agents count as "working/total".
   - Rows are 28 px. From 13.25 px: a 21 px icon column right under the section chevron, then a
     14 px slot with a 7 px status dot (from 39.5 px), then the title at 12.25 px semibold,
-    `muted` (`foreground` when selected). Sub-agents have no icon and indent 19.25 px per level.
+    `muted` (`foreground` when selected). A sub-agent keeps its icon in the same column; its
+    status dot and title indent 19.25 px per level.
     An empty section shows a 10.5 px "+ Add agent" or "+ Add terminal".
   - An agent row's icon column holds its tool's 16 px icon, centered on the row, in the row's
     text color: Whitby's own outlines for Claude Code (`clawd.svg`, the crab) and Codex
     (`codex.svg`), herdr's Grok glyph for Grok (it reports itself as `grok-build`), else herdr's
-    program icon. It's at 20% opacity unless the agent's pane has the focus. A terminal row
-    leaves the column empty.
+    program icon. It's at 20% opacity unless the agent's pane has the focus (a sub-agent's,
+    unless it's the one shown). A terminal row leaves the column empty.
   - The selected row has a 3.5 px blue bar, 85% of the row tall, flush with the sidebar's left
     edge.
 - **Agent header**, 62 px: the title at 15 px semibold, "{tool}  ·  {state}" under it at 11 px

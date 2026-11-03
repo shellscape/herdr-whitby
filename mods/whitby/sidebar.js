@@ -170,20 +170,22 @@ function title(t, text, unread, folded, count) {
 
 // Sub-agents under a terminal, depth first, each indented one level more; a folded
 // parent hides its own. Each shows in the tab's lead pane (see show); the one shown
-// takes the selection.
+// takes the selection. The agent icon stays in the top-level rows' column; only the
+// status dot and title are indented.
 function subRows(v, t, address, depth, go, showing, ts, pos) {
   return children(address, ts).flatMap((c) => {
     const key = `kids:${c.key}`;
     const kids = subCount(c.address, ts);
     const open = !v.folded.has(key);
     const on = c.address === showing;
+    const k = c.terminal;
     if (on) pos.selected = pos.y;
     pos.y += ROW;
     const r = h_flex()
       .id(`sub-${c.key}`)
       .h(ROW)
       .flex_none()
-      .pl(31.5 + PAD + NEST * depth)
+      .pl(5.25 + PAD)
       .pr(10.5)
       .gap(5.25)
       .items_center()
@@ -192,7 +194,8 @@ function subRows(v, t, address, depth, go, showing, ts, pos) {
       .hover((s) => s.bg(t.rowHover))
       .on_hover((on, cx) => { if (on) v.hoverRow = c.key; else if (v.hoverRow === c.key) v.hoverRow = null; cx.notify(); })
       .on_click(() => go(c.address))
-      .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
+      .child(agentIcon(k.program?.agent || k.agent ? { program: k.program, app: k.agent } : null, on))
+      .child(h_flex().ml(NEST * depth).w(14).flex_none().justify_center().items_center().child(statusMark(t, subStatus(c))))
       .child(title(t, childTitle(c), false, kids > 0 && !open, kids))
       .children(helpers(t, c.key, helperCount(c.address, ts)))
       .children(stats(t, badges(v.stats?.[c.address], SHOW.rowCpu, SHOW.rowMem), c.key, v.stats?.[c.address]))
