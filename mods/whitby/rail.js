@@ -39,7 +39,7 @@ export const withTip = (id, tip, el) => div().id(`${id}-tip`).flex_none().toolti
 
 const centered = (child) => div().size_full().flex().items_center().justify_center().child(child);
 
-// A rail button: 28px, rounded 7, a 1px line, resting on the light or dark surface.
+// A rail button: 28px, rounded 4, a 1px line, resting on the light or dark surface.
 // On hover its fill and its glyph (muted to full) fade in and out over 150ms; while
 // it's pressed a fill shows over it at once.
 function railButton(v, t, id, glyph, tip, action) {
@@ -49,14 +49,14 @@ function railButton(v, t, id, glyph, tip, action) {
     .relative()
     .size(28)
     .flex_none()
-    .rounded(7)
+    .rounded(4)
     .border(1)
     .border_color(t.border)
     .bg(t.canvas), v, id)
-    .child(fadeLayer(`${id}-fill`, on, div().size_full().rounded(6).bg(t.hover)))
+    .child(fadeLayer(`${id}-fill`, on, div().size_full().rounded(3).bg(t.hover)))
     .child(div().absolute().inset(0).child(centered(icon(glyph, 18, t.muted))))
     .child(fadeLayer(`${id}-ink`, on, centered(icon(glyph, 18, t.foreground))))
-    .child(pressLayer(`${id}-press`, alpha(t.foreground, 0.08), 6, action)));
+    .child(pressLayer(`${id}-press`, alpha(t.foreground, 0.08), 3, action)));
 }
 
 export function rail(v) {
