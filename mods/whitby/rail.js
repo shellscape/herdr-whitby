@@ -3,7 +3,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { run } from "herdr";
+import { run, window } from "herdr";
 import { palette, icon, alpha } from "./kit.js";
 
 const FADE = { duration: 150, easing: "ease-out" };
@@ -16,11 +16,35 @@ export function hovered(v, id) {
 }
 
 export function trackHover(el, v, id) {
-  return el.on_hover((on, cx) => {
-    v.hovered ??= new Set();
-    on ? v.hovered.add(id) : v.hovered.delete(id);
+  return el
+    .on_mouse_move((e) => (v.boxes ??= new Map()).set(id, e.bounds))
+    .on_hover((on, cx) => {
+      v.hovered ??= new Set();
+      on ? v.hovered.add(id) : v.hovered.delete(id);
+      cx.notify();
+      if (on) watchHover(v, id, cx);
+    });
+}
+
+// A hover can end with no hover-out: Settings opens its own window, and a window at the
+// back gets no pointer moves, so the button would stay lit. While it's hovered, a control
+// checks every 150ms (as the footer's usage card does) and ends the hover once its window
+// goes to the back or the pointer is off it (its bounds from the pointer's last move on it,
+// against GPUI's window; the global Herdr's window() hides).
+function watchHover(v, id, cx) {
+  v.watching ??= new Set();
+  if (v.watching.has(id)) return;
+  v.watching.add(id);
+  const check = (cx) => {
+    if (!v.hovered?.has(id)) return v.watching.delete(id);
+    const b = v.boxes?.get(id), p = globalThis.window?.mouse_position?.();
+    const off = b && p && (p.x < b.x - 1 || p.x > b.x + b.width + 1 || p.y < b.y - 1 || p.y > b.y + b.height + 1);
+    if (window()?.active !== false && !off) return cx.timer.after(150, check);
+    v.hovered.delete(id);
+    v.watching.delete(id);
     cx.notify();
-  });
+  };
+  cx.timer.after(150, check);
 }
 
 // A layer that fades in over 150ms while the control is hovered, and out after.
