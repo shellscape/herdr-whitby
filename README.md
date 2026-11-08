@@ -99,8 +99,10 @@ never renewed: each CLI renews its own.
 A second layout, `whitby-chat`, is Whitby with the agent page as a chat, after Grok Bot's. The
 title bar, rail, sidebar, agent header and footer are Whitby's. A Claude Code, Grok or Codex
 agent shows as a conversation in place of its terminal: your messages in blue on the right, its
-replies in grey on the left as markdown, its reasoning folded into a chip, and each tool call as
-a card with its state. Click a card to see its output. Three dots step across while it works.
+replies in grey on the left as markdown, and its tool calls and reasoning folded into short
+chips, one per kind of work: "Ran 2 commands", "Edited 3 files", "Reasoning". Click a chip for
+its calls, each with what it ran and a check, a spinner or a cross; click a call for its output.
+A call still running has its own chip, "Running · …". Three dots step across while it works.
 Every agent's chat is loaded in the background, so clicking one in the sidebar shows it at
 once, and the agent bar shows the agent's icon beside its name. A new agent shows a spinner
 while it starts. Type in the composer at the bottom: Enter sends, Shift+Enter starts a new line,
@@ -112,12 +114,16 @@ the same tab, resuming its session, and the conversation stays.
 
 The agent still runs in its terminal. The chat reads the session its CLI writes and types your
 message into the terminal (`hc send`), as you would. An agent opens on its chat and stays there:
-`cmd-`` switches it to its terminal and back, and Whitby never switches on its own.
+`ctrl-`` switches it to its terminal and back, and Whitby never switches on its own.
 
 When the agent asks something in its terminal (Claude's folder trust and its questions, Codex's
-approvals, an update offer), the chat reads it off the agent's screen and shows it as a card:
-the question, a button for each option, and Cancel when Esc cancels. A button moves the
-agent's cursor there with the arrow keys and presses Enter, as you would. An option that opens
+approvals, an update offer), the chat reads it off the agent's screen and shows it as a card
+above the reply box, whenever the chat shows, also on coming back from the terminal: the
+question, a button for each option, and Cancel when Esc cancels. A button moves the agent's
+cursor there with the arrow keys and presses Enter, as you would. The screen is read again
+right before the keys go: a prompt that changed sends nothing, and the card shows what's there
+now. Each prompt is answered once; the card then says "Answer sent. Waiting for the agent."
+until the prompt goes. An option that opens
 a field ("Type something.") moves there, and the composer types your answer into it. A question
 that isn't a menu shows the agent's last lines with ↑, ↓, Enter and Esc, and the composer types
 your answer. Messages otherwise go only to an agent at its prompt or at work (`hc send --if`),
@@ -133,7 +139,7 @@ herdr-app do layout.switch --name whitby-chat
 ```
 
 It needs the rest of Whitby's files (the mod and the themes) installed as above. Merge
-`keys.json` into `~/.config/herdr-app/keys.json` for `cmd-``: its `layout:whitby-chat` section
+`keys.json` into `~/.config/herdr-app/keys.json` for `ctrl-``: its `layout:whitby-chat` section
 works only while Whitby Chat shows.
 
 What it reads and runs, for each Claude Code, Grok and Codex agent in the window:

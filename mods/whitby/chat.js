@@ -5,7 +5,7 @@
 // The agent still runs in its terminal. The chat reads the session its CLI writes (see
 // chat-agents.js), and the composer types into the terminal with `hc send`, as you would.
 // Stop is `hc interrupt`. An agent opens on its chat and stays there until you press the
-// view key (cmd-`), which switches it to its terminal and back; Whitby never switches on
+// view key (ctrl-`), which switches it to its terminal and back; Whitby never switches on
 // its own. A shell or an agent the chat can't read shows its terminal, having no chat.
 // Messages go only to an agent at its prompt or at work, never into one of its dialogs.
 
@@ -34,7 +34,6 @@ const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
 // question shows in the chat (chat-screen.js).
 const SCREEN = 500, SCREEN_BACKGROUND = 2000;
 
-const TOOL_WORD = { running: "Running", done: "Done", failed: "Failed" };
 const ICON_LOADER = "mods/whitby/icons/loader-circle.svg";
 
 function find(node, id) {
@@ -51,7 +50,7 @@ function find(node, id) {
 // an update offer) and a blocked one is asking something: Enter would answer either.
 const READY = new Set(["idle", "working", "done"]);
 
-// The agents you switched to their terminal with the view key (cmd-` in Whitby Chat), by
+// The agents you switched to their terminal with the view key (ctrl-` in Whitby Chat), by
 // address. Shared, so the sidebar, the chat and every other part agree.
 const TERMINAL = "whitby.terminal";
 
@@ -119,6 +118,10 @@ export function initChat(v, cx) {
   v.screens = new Map();
   v.answering = new Set();
   v.freeText = new Set();
+  // The prompt each agent was answered on (its signature, see sig), so a prompt is answered
+  // once; and the agents whose prompt changed on screen as you answered it.
+  v.answered = new Map();
+  v.changed = new Set();
   v.open = new Set();
   v.lift = 0;
   v.viewH = 0;
@@ -163,7 +166,7 @@ function tick(v, cx) {
   for (const a of chatAgents()) {
     if (!v.inputs.has(a.address)) composer(v, a.address);
     flush(v, a.address, cx);
-    if (READY.has(a.p.status)) { v.screens.delete(a.address); v.freeText.delete(a.address); }
+    if (READY.has(a.p.status)) { v.screens.delete(a.address); v.freeText.delete(a.address); v.answered.delete(a.address); v.changed.delete(a.address); }
     else {
       const sc = v.screens.get(a.address);
       if (!sc?.reading && now - (sc?.readAt ?? 0) >= (a.address === shown ? SCREEN : SCREEN_BACKGROUND)) readScreen(v, a.address, cx);
@@ -201,26 +204,49 @@ function readScreen(v, address, cx) {
     const text = r.code === 0 ? r.stdout : "";
     const next = { dialog: readDialog(text), tail: screenTail(text), readAt: Date.now(), reading: false };
     v.screens.set(address, next);
+    // A new prompt (or none) can be answered again.
+    if (v.answered.has(address) && (!next.dialog || sig(next.dialog) !== v.answered.get(address))) {
+      v.answered.delete(address);
+      v.changed.delete(address);
+    }
     const same = JSON.stringify(before?.dialog ?? null) === JSON.stringify(next.dialog) && before?.tail === next.tail;
     if (!same && chatTarget()?.address === address) cx.notify();
   });
 }
 
-// Answers the agent's question with option `to`: the arrow keys to it, then Enter, as you
-// would in its terminal. A free-text option is only moved to: the composer then types
-// your answer into its field.
+// A prompt's signature: its question, its options and where its cursor is.
+const sig = (d) => JSON.stringify([d.question, d.options.map((o) => o.label), d.selected]);
+
+// Answers the agent's prompt with option `to`: the arrow keys to it, then Enter, as you
+// would in its terminal (Cancel presses Esc). Right before the keys go, the screen is read
+// again: a prompt that changed sends nothing, and the card shows what's there now. Each
+// prompt is answered once; the card then waits for it to go. A free-text option is only
+// moved to: the composer then types your answer into its field.
 function answer(v, address, dialog, to, cx) {
-  if (v.answering.has(address)) return;
+  if (v.answering.has(address) || v.answered.get(address) === sig(dialog)) return;
   v.answering.add(address);
-  const free = dialog.options[to].free;
+  cx.notify();
   cx.spawn(async (cx) => {
-    await hc(["keys", address, ...answerKeys(dialog, to)]).catch(() => {});
-    if (free) { v.freeText.add(address); v.inputs.get(address)?.focus(); }
-    v.screens.delete(address);
+    const r = await hc(["read", address, "--lines", "40"]).catch(() => ({ code: 1, stdout: "" }));
+    const text = r.code === 0 ? r.stdout : "";
+    const now = readDialog(text);
+    if (!now || sig(now) !== sig(dialog)) {
+      v.screens.set(address, { dialog: now, tail: screenTail(text), readAt: Date.now(), reading: false });
+      v.changed.add(address);
+    } else {
+      const keys = to === "esc" ? ["esc"] : answerKeys(dialog, to);
+      await hc(["keys", address, ...keys]).catch(() => {});
+      v.changed.delete(address);
+      if (to !== "esc" && dialog.options[to].free) {
+        v.freeText.add(address);
+        v.inputs.get(address)?.focus();
+      } else {
+        v.answered.set(address, sig(dialog));
+      }
+    }
     v.answering.delete(address);
     cx.notify();
   });
-  cx.notify();
 }
 
 // Presses keys in the agent's terminal for a question the chat can't read as a menu.
@@ -477,55 +503,101 @@ function toggle(v, key, cx) {
   cx.notify();
 }
 
-// Reasoning folds into a chip, as Grok Bot's does; a click opens it.
-function thinking(v, t, key, it) {
-  const open = v.open.has(key);
-  return v_flex().w_full().items_start().gap(6)
-    .child(h_flex().id(`think-${key}`).flex_none().gap(5).items_center().px(10).py(3.5).rounded(RADIUS)
-      .border(1).border_color(t.border).text_size(11.5).text_color(t.muted).cursor_pointer()
-      .hover((s) => s.text_color(t.foreground).bg(t.rowHover))
-      .on_click((_e, cx) => toggle(v, key, cx))
-      .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10))
-      .child(div().child("Reasoning")))
-    .when(open, (el) => el.child(div().ml(6).pl(12).pr(64).border_l(2).border_color(t.border)
-      .text_size(12.5).line_height("19px").text_color(t.muted).child(it.text)));
-}
+// Tool calls and reasoning fold into short chips, one per kind of work in a run of them:
+// "Ran 2 commands", "Edited 3 files", "Reasoning". A click opens a chip: its calls, each
+// with what it ran and a check, a spinner or a cross, and a call's output on a click. A
+// call still running has its own chip, "Running · <what>", with a spinner.
+const FOLD = {
+  command: { icon: "square-terminal", say: (n) => (n === 1 ? "Ran a command" : `Ran ${n} commands`) },
+  edit: { icon: "file", say: (n) => (n === 1 ? "Edited a file" : `Edited ${n} files`) },
+  read: { icon: "file", say: (n) => (n === 1 ? "Read a file" : `Read ${n} files`) },
+  search: { icon: "search", say: (n) => (n === 1 ? "Searched the code" : `Searched the code ${n} times`) },
+  web: { icon: "search", say: (n) => (n === 1 ? "Searched the web" : `Searched the web ${n} times`) },
+  agent: { icon: "sparkles", say: (n) => (n === 1 ? "Ran a subagent" : `Ran ${n} subagents`) },
+  tool: { icon: "wrench", say: (n, calls) => (n === 1 ? `Used ${calls[0].name}` : `Used ${n} tools`) },
+  thinking: { icon: "sparkles", say: () => "Reasoning" },
+};
 
-function toolIcon(name) {
-  const n = (name ?? "").toLowerCase();
-  if (/bash|shell|command|terminal|exec/.test(n)) return "square-terminal";
+function toolKind(it) {
+  if (it.kind === "thinking") return "thinking";
+  const n = (it.name ?? "").toLowerCase();
+  if (/web|fetch|url|browse/.test(n)) return "web";
+  if (/bash|shell|command|terminal|exec|^run/.test(n)) return "command";
+  if (/^task$|agent/.test(n)) return "agent";
+  if (/edit|write|replace|patch|notebook|create/.test(n)) return "edit";
+  if (/read|view|open/.test(n)) return "read";
   if (/grep|glob|search|find|list|ls\b|dir/.test(n)) return "search";
-  if (/read|edit|write|file|replace|patch|notebook/.test(n)) return "file";
-  return "wrench";
+  return "tool";
 }
 
-// A tool's state, Grok Bot's pill in Whitby's state colors: green (pulsing while it
-// runs), red when it failed.
-function pill(t, status) {
-  const color = status === "failed" ? t.word.error : t.word.working;
-  const dot = div().size(6).rounded_full().bg(color);
-  return h_flex().flex_none().gap(5).items_center().px(8).py(2).rounded(RADIUS).bg(alpha(color, 0.12))
-    .text_size(11).font_weight(500).text_color(color)
-    .child(status === "running" ? dot.loop("opacity", { from: 0.35, to: 1, period: 1200, easing: "ease-in-out" }) : dot)
-    .child(div().child(TOOL_WORD[status] ?? "Done"));
+// How many a chip stands for: files for edits and reads, calls for the rest.
+function folded(kind, calls) {
+  const n = kind === "edit" || kind === "read" ? new Set(calls.map((c) => c.detail || c.id)).size : calls.length;
+  return FOLD[kind].say(n, calls);
 }
 
-// A tool call, as Grok Bot's activity card: what ran, its state, and its output on a click.
-function toolCard(v, t, key, it) {
+function mark(t, status) {
+  if (status === "running") return svg(ICON_LOADER).size(11).flex_none().text_color(t.muted).spin(900);
+  if (status === "failed") return div().flex_none().text_size(11.5).text_color(t.word.error).child("✕");
+  if (status === "stopped") return div().flex_none().text_size(11.5).text_color(t.muted).child("–");
+  return div().flex_none().text_size(11.5).text_color(t.word.working).child("✓");
+}
+
+function chip(v, t, key, group) {
   const open = v.open.has(key);
-  const output = (it.output ?? "").trim();
-  const lines = output.split("\n");
-  const shown = lines.length > 18 ? [...lines.slice(0, 18), `… ${lines.length - 18} more lines`].join("\n") : output;
-  return h_flex().w_full().justify_start().pr(64)
-    .child(v_flex().id(`tool-${key}`).w_full().max_w(560).px(12).py(9).gap(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
-      .when(Boolean(output), (el) => el.cursor_pointer().hover((s) => s.border_color(alpha(t.muted, 0.45))).on_click((_e, cx) => toggle(v, key, cx)))
-      .child(h_flex().gap(8).items_center()
-        .child(icon(toolIcon(it.name), 13, t.muted))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_weight(600).text_color(t.foreground).child(it.name))
-        .child(pill(t, it.status)))
-      .when(Boolean(it.detail), (el) => el.child(div().truncate().font_family(MONO).text_size(11.5).text_color(t.muted).child(tidy(it.detail))))
-      .when(open && Boolean(output), (el) => el.child(div().mt(4).px(8).py(6).rounded(RADIUS).bg(t.canvas).border(1).border_color(t.border)
-        .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted).child(shown))));
+  const running = group.kind === "running";
+  const failed = group.calls.filter((c) => c.status === "failed").length;
+  const call = group.calls[0];
+  const label = running ? `Running · ${tidy(call.detail) || call.name}` : folded(group.kind, group.calls);
+  const opens = !running || Boolean(call.output);
+  return h_flex().id(`chip-${key}`).flex_none().max_w(420).h(26).px(9).gap(6).items_center().rounded(RADIUS)
+    .border(1).border_color(open ? alpha(t.muted, 0.45) : t.border).bg(t.front).text_size(12).text_color(open ? t.foreground : t.muted)
+    .when(opens, (el) => el.cursor_pointer().hover((s) => s.text_color(t.foreground).bg(t.rowHover)).on_click((_e, cx) => toggle(v, key, cx)))
+    .child(running ? svg(ICON_LOADER).size(12).flex_none().spin(900) : icon(FOLD[group.kind].icon, 12))
+    .child(div().min_w(0).truncate().child(label))
+    .when(failed > 0, (el) => el.child(div().flex_none().text_color(t.word.error).child(`· ${failed} failed`)))
+    .when(opens, (el) => el.child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 9)));
+}
+
+function output(t, text) {
+  const lines = text.split("\n");
+  const shown = lines.length > 18 ? [...lines.slice(0, 18), `… ${lines.length - 18} more lines`].join("\n") : text;
+  return div().mt(2).mb(4).px(8).py(6).rounded(RADIUS).bg(t.canvas).border(1).border_color(t.border)
+    .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted).child(shown);
+}
+
+// An open chip's calls: what each ran and how it went; a click shows its output.
+function calls(v, t, address, group) {
+  if (group.kind === "thinking") {
+    return v_flex().gap(8).children(group.calls.map((it) => div().ml(6).pl(12).pr(64).border_l(2).border_color(t.border)
+      .text_size(12.5).line_height("19px").text_color(t.muted).child(it.text)));
+  }
+  return v_flex().gap(1).children(group.calls.flatMap((it) => {
+    const key = `${address}-call-${it.index}`;
+    const out = (it.output ?? "").trim();
+    const row = h_flex().id(`row-${key}`).px(8).py(4).gap(8).items_center().rounded(RADIUS)
+      .when(Boolean(out), (el) => el.cursor_pointer().hover((s) => s.bg(t.rowHover)).on_click((_e, cx) => toggle(v, key, cx)))
+      .child(div().flex_none().text_size(12).font_weight(600).text_color(t.foreground).child(it.name))
+      .child(div().flex_1().min_w(0).truncate().font_family(MONO).text_size(11.5).text_color(t.muted).child(tidy(it.detail)))
+      .child(mark(t, it.status));
+    return v.open.has(key) && out ? [row, output(t, out)] : [row];
+  }));
+}
+
+// A run of tool calls and reasoning: its chips in a row, and under them each open one's calls.
+function toolRun(v, t, address, run) {
+  const groups = [];
+  for (const it of run) {
+    if (it.kind === "tool" && it.status === "running") { groups.push({ kind: "running", calls: [it] }); continue; }
+    const kind = toolKind(it);
+    let g = groups.find((x) => x.kind === kind);
+    if (!g) groups.push((g = { kind, calls: [] }));
+    g.calls.push(it);
+  }
+  const keyOf = (g) => `${address}-${run[0].index}-${g.kind}-${g.calls[0].index}`;
+  return v_flex().w_full().gap(6)
+    .child(h_flex().flex_wrap().gap(6).children(groups.map((g) => chip(v, t, keyOf(g), g))))
+    .children(groups.filter((g) => v.open.has(keyOf(g))).map((g) => calls(v, t, address, g)));
 }
 
 function note(t, it, i) {
@@ -550,15 +622,18 @@ function messages(v, t, address, feed) {
   const out = [];
   if (feed.cut) out.push(h_flex().w_full().justify_center().py(2).text_size(11).text_color(alpha(t.muted, 0.7)).child("Earlier messages are in the terminal's session."));
   let last = 0;
+  let run = [];
+  const fold = () => { if (run.length) out.push(toolRun(v, t, address, run)); run = []; };
   feed.items.forEach((it, i) => {
+    if (it.kind === "tool" || it.kind === "thinking") { run.push({ ...it, index: i }); return; }
+    fold();
     if (it.at && it.at - last > GAP) out.push(stamp(t, it.at, i));
     if (it.at) last = it.at;
     if (it.kind === "user") out.push(userMessage(t, it));
     else if (it.kind === "text") out.push(reply(t, `${address}-${i}`, it));
-    else if (it.kind === "thinking") out.push(thinking(v, t, `${address}-${i}`, it));
-    else if (it.kind === "tool") out.push(toolCard(v, t, `${address}-${i}`, it));
     else out.push(note(t, it, i));
   });
+  fold();
   return out;
 }
 
@@ -581,37 +656,40 @@ function loading(t, text) {
     .child(div().child(text));
 }
 
-// What the agent is asking, as a card in the conversation: its question, a button for each
-// option (the one under its cursor marked), and Cancel when Esc cancels. A pill in
-// Whitby's needs-you purple says it's waiting.
+// What the agent is asking, as a card above the reply box: its question, a button for
+// each option (the one under its cursor marked), and Cancel when Esc cancels. A pill in
+// the sidebar's state color says it's waiting. Once answered, it waits for the prompt to go.
 function dialogCard(v, t, address, name, dialog, status) {
-  const busy = v.answering.has(address);
+  const sent = v.answered.get(address) === sig(dialog);
+  const busy = v.answering.has(address) || sent;
   const [title, ...rest] = (dialog.question || `${name} is asking`).split("\n");
   // The sidebar's state: red "Blocked" for an approval, purple "Needs you" for the rest.
   const state = status === "blocked" ? stateOf("blocked", true, reportOf(address)) : "needs";
   const pillColor = t.word[state] ?? t.word.needs;
-  return h_flex().w_full().justify_start().pr(64)
-    .child(v_flex().id(`ask-${address}`).w_full().max_w(560).px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
-      .opacity(busy ? 0.6 : 1)
-      .child(h_flex().gap(8).items_start()
-        .child(div().flex_1().min_w(0).text_size(13.5).font_weight(600).text_color(t.foreground).child(inline(t, `ask-${address}-title`, title, { lineHeight: 19 })))
-        .child(h_flex().flex_none().gap(5).items_center().px(8).py(2).rounded(RADIUS).bg(alpha(pillColor, 0.12))
-          .text_size(11).font_weight(500).text_color(pillColor)
-          .child(div().size(6).rounded_full().bg(pillColor).loop("opacity", { from: 0.35, to: 1, period: 1600, easing: "ease-in-out" }))
-          .child(div().child(STATE[state]))))
-      .when(rest.length > 0, (el) => el.child(div().text_size(12.5).line_height("18px").text_color(t.muted)
-        .child(inline(t, `ask-${address}-q`, rest.join("\n"), { codeSize: 11.5, lineHeight: 18 }))))
-      .child(v_flex().gap(6).children(dialog.options.map((o, i) => h_flex().id(`ask-${address}-${i}`).px(12).py(8).gap(10).items_start().rounded(RADIUS)
-        .border(1).border_color(i === dialog.selected ? alpha(t.blue, 0.55) : t.border)
-        .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => answer(v, address, dialog, i, cx)))
-        .child(v_flex().flex_1().min_w(0).gap(2)
-          .child(div().text_size(13).text_color(t.foreground).child(o.label))
-          .when(Boolean(o.detail), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(o.detail)))
-          .when(o.free, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Then type your answer below.")))))))
-      .when(dialog.esc, (el) => el.child(h_flex().justify_end()
-        .child(div().id(`ask-${address}-esc`).px(8).py(3).rounded(RADIUS).text_size(12).text_color(t.muted)
-          .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => press(v, address, ["esc"], cx)))
-          .child("Cancel")))));
+  const note = sent ? "Answer sent. Waiting for the agent."
+    : v.changed.has(address) ? "It changed on screen. Here is what it shows now." : null;
+  return v_flex().id(`ask-${address}`).w_full().px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
+    .child(h_flex().gap(8).items_start()
+      .child(div().flex_1().min_w(0).text_size(13.5).font_weight(600).text_color(t.foreground).child(inline(t, `ask-${address}-title`, title, { lineHeight: 19 })))
+      .child(h_flex().flex_none().gap(5).items_center().px(8).py(2).rounded(RADIUS).bg(alpha(pillColor, 0.12))
+        .text_size(11).font_weight(500).text_color(pillColor)
+        .child(div().size(6).rounded_full().bg(pillColor).loop("opacity", { from: 0.35, to: 1, period: 1600, easing: "ease-in-out" }))
+        .child(div().child(STATE[state]))))
+    .when(rest.length > 0, (el) => el.child(div().text_size(12.5).line_height("18px").text_color(t.muted)
+      .child(inline(t, `ask-${address}-q`, rest.join("\n"), { codeSize: 11.5, lineHeight: 18 }))))
+    .child(v_flex().gap(6).opacity(busy ? 0.6 : 1).children(dialog.options.map((o, i) => h_flex().id(`ask-${address}-${i}`).px(12).py(8).gap(10).items_start().rounded(RADIUS)
+      .border(1).border_color(i === dialog.selected ? alpha(t.blue, 0.55) : t.border)
+      .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => answer(v, address, dialog, i, cx)))
+      .child(v_flex().flex_1().min_w(0).gap(2)
+        .child(div().text_size(13).text_color(t.foreground).child(o.label))
+        .when(Boolean(o.detail), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(o.detail)))
+        .when(o.free, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Then type your answer below.")))))))
+    .when(Boolean(note) || dialog.esc, (el) => el.child(h_flex().gap(8).items_center()
+      .child(div().flex_1().min_w(0).text_size(12).text_color(t.muted).child(note ?? ""))
+      .when(dialog.esc, (row) => row.child(div().id(`ask-${address}-esc`).flex_none().px(8).py(3).rounded(RADIUS).text_size(12).text_color(t.muted)
+        .opacity(busy ? 0.6 : 1)
+        .when(!busy, (b) => b.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => answer(v, address, dialog, "esc", cx)))
+        .child("Cancel")))));
 }
 
 // A question the chat can't read as a menu (a yes/no line, a field): the agent's last
@@ -622,14 +700,13 @@ function screenCard(v, t, address, name, tail) {
     .text_size(12).text_color(t.foreground)
     .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => press(v, address, keys, cx)))
     .child(label);
-  return h_flex().w_full().justify_start().pr(64)
-    .child(v_flex().id(`asking-${address}`).w_full().max_w(560).px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
-      .child(div().text_size(13.5).font_weight(600).text_color(t.foreground).child(`${name} is waiting for an answer`))
-      .when(Boolean(tail), (el) => el.child(div().px(8).py(6).rounded(RADIUS).bg(t.canvas).border(1).border_color(t.border)
-        .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted).child(tail)))
-      .child(h_flex().gap(6).items_center()
-        .child(key("↑", ["up"])).child(key("↓", ["down"])).child(key("Enter", ["enter"])).child(key("Esc", ["esc"]))
-        .child(div().ml(6).text_size(11.5).text_color(t.muted).child("or type your answer below"))));
+  return v_flex().id(`asking-${address}`).w_full().px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
+    .child(div().text_size(13.5).font_weight(600).text_color(t.foreground).child(`${name} is waiting for an answer`))
+    .when(Boolean(tail), (el) => el.child(div().px(8).py(6).rounded(RADIUS).bg(t.canvas).border(1).border_color(t.border)
+      .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted).child(tail)))
+    .child(h_flex().gap(6).items_center()
+      .child(key("↑", ["up"])).child(key("↓", ["down"])).child(key("Enter", ["enter"])).child(key("Esc", ["esc"]))
+      .child(div().ml(6).text_size(11.5).text_color(t.muted).child("or type your answer below")));
 }
 
 // The conversation scrolls in a viewport of its own, kept on the newest message: it rests
@@ -792,18 +869,24 @@ export function chat(v) {
   // anything to it is still starting (Codex reports working while it sets up).
   const asked = Boolean(going.length) || Boolean(feed?.items.some((it) => it.kind === "user"));
   const starting = !p.status || (p.status === "working" && !asked);
-  // A question the agent shows in its terminal, read off its screen, shows here to answer.
+  // A question the agent shows in its terminal, read off its screen, shows above the reply
+  // box to answer, whenever the chat shows (also on coming back from the terminal).
   const screen = !READY.has(p.status) ? v.screens.get(address) : null;
-  const tail = screen?.dialog && !v.freeText.has(address) ? [dialogCard(v, t, address, name, screen.dialog, p.status)]
-    : p.status === "blocked" && screen?.readAt && !v.freeText.has(address) ? [screenCard(v, t, address, name, screen.tail)]
+  const card = v.freeText.has(address) ? null
+    : screen?.dialog ? dialogCard(v, t, address, name, screen.dialog, p.status)
+    : p.status === "blocked" && screen?.readAt ? screenCard(v, t, address, name, screen.tail)
+    : null;
+  const tail = card ? []
     : starting || p.status === "blocked" ? [loading(t, starting ? `Starting ${name}…` : `${name} is asking something…`)]
     : !feed?.loaded ? [loading(t, "Loading the conversation…")]
     : p.status === "working" ? [typing(t)] : [];
-  const quiet = feed?.loaded && !said.length && !going.length && !tail.length;
+  const quiet = feed?.loaded && !said.length && !going.length && !tail.length && !card;
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
   const body = [...said, ...empty, ...going, ...tail];
   return frame
     .child(viewport(v, t, address, body))
+    .when(Boolean(card), (el) => el.child(v_flex().id(`card-${address}`).flex_none().items_center().px(24).pt(6)
+      .child(div().w_full().max_w(COLUMN).child(card))))
     .child(composerArea(v, t, target, p.status === "working" && !starting));
 }
