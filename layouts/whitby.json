@@ -1,6 +1,7 @@
 {
   "id": "root",
   "type": "column",
+  "resizable": false,
   "titlebar": "none",
   "traffic_lights": [9, 9],
   "preview": "layouts/whitby.svg",
