@@ -33,6 +33,8 @@ const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
 // How often the screen of an agent that's starting or asking something is read, so its
 // question shows in the chat (chat-screen.js).
 const SCREEN = 500, SCREEN_BACKGROUND = 2000;
+// How long an answered prompt's card waits for its agent to report back.
+const ANSWER_HOLD = 20_000;
 
 const ICON_LOADER = "mods/whitby/icons/loader-circle.svg";
 
@@ -118,8 +120,9 @@ export function initChat(v, cx) {
   v.screens = new Map();
   v.answering = new Set();
   v.freeText = new Set();
-  // The prompt each agent was answered on (its signature, see sig), so a prompt is answered
-  // once; and the agents whose prompt changed on screen as you answered it.
+  // The prompt each agent was answered on ({ key, dialog, at }, see promptKey), so a prompt
+  // is answered once and its card stays, answered, until the agent reports back; and the
+  // agents whose prompt changed on screen as you answered it.
   v.answered = new Map();
   v.changed = new Set();
   v.open = new Set();
@@ -167,6 +170,8 @@ function tick(v, cx) {
     if (!v.inputs.has(a.address)) composer(v, a.address);
     flush(v, a.address, cx);
     if (READY.has(a.p.status)) { v.screens.delete(a.address); v.freeText.delete(a.address); v.answered.delete(a.address); v.changed.delete(a.address); }
+    // An answer the agent never reported back on (it went away, say) stops holding its card.
+    else if (now - (v.answered.get(a.address)?.at ?? now) > ANSWER_HOLD) v.answered.delete(a.address);
     else {
       const sc = v.screens.get(a.address);
       if (!sc?.reading && now - (sc?.readAt ?? 0) >= (a.address === shown ? SCREEN : SCREEN_BACKGROUND)) readScreen(v, a.address, cx);
@@ -189,7 +194,10 @@ function tick(v, cx) {
 // when that changes.
 function shareAsking(v) {
   const asking = {};
-  for (const a of chatAgents()) if (!a.p.status && v.screens.get(a.address)?.dialog) asking[a.address] = "needs";
+  // An answered prompt counts until the agent reports back, so nothing jumps in between.
+  for (const a of chatAgents()) {
+    if (!a.p.status && (v.screens.get(a.address)?.dialog || v.answered.has(a.address))) asking[a.address] = "needs";
+  }
   const now = shared(ASKING) ?? {};
   const key = (m) => Object.keys(m).sort().join(",");
   if (key(asking) !== key(now)) setShared(ASKING, asking);
@@ -204,8 +212,9 @@ function readScreen(v, address, cx) {
     const text = r.code === 0 ? r.stdout : "";
     const next = { dialog: readDialog(text), tail: screenTail(text), readAt: Date.now(), reading: false };
     v.screens.set(address, next);
-    // A new prompt (or none) can be answered again.
-    if (v.answered.has(address) && (!next.dialog || sig(next.dialog) !== v.answered.get(address))) {
+    // A different prompt can be answered again. The answered one going (or the screen
+    // blanking as the agent moves on) keeps its card until the agent reports back.
+    if (next.dialog && v.answered.has(address) && promptKey(next.dialog) !== v.answered.get(address).key) {
       v.answered.delete(address);
       v.changed.delete(address);
     }
@@ -214,34 +223,36 @@ function readScreen(v, address, cx) {
   });
 }
 
-// A prompt's signature: its question, its options and where its cursor is.
-const sig = (d) => JSON.stringify([d.question, d.options.map((o) => o.label), d.selected]);
+// Which prompt it is: its question and its options (not where its cursor is, which moves
+// as it's answered).
+const promptKey = (d) => JSON.stringify([d.question, d.options.map((o) => o.label)]);
 
 // Answers the agent's prompt with option `to`: the arrow keys to it, then Enter, as you
 // would in its terminal (Cancel presses Esc). Right before the keys go, the screen is read
-// again: a prompt that changed sends nothing, and the card shows what's there now. Each
-// prompt is answered once; the card then waits for it to go. A free-text option is only
-// moved to: the composer then types your answer into its field.
+// again: a different prompt sends nothing, and the card shows what's there now; the keys
+// start from where its cursor is then. Each prompt is answered once; its card then waits,
+// answered, for the agent to report back. A free-text option is only moved to: the composer
+// then types your answer into its field.
 function answer(v, address, dialog, to, cx) {
-  if (v.answering.has(address) || v.answered.get(address) === sig(dialog)) return;
+  if (v.answering.has(address) || v.answered.get(address)?.key === promptKey(dialog)) return;
   v.answering.add(address);
   cx.notify();
   cx.spawn(async (cx) => {
     const r = await hc(["read", address, "--lines", "40"]).catch(() => ({ code: 1, stdout: "" }));
     const text = r.code === 0 ? r.stdout : "";
     const now = readDialog(text);
-    if (!now || sig(now) !== sig(dialog)) {
+    if (!now || promptKey(now) !== promptKey(dialog)) {
       v.screens.set(address, { dialog: now, tail: screenTail(text), readAt: Date.now(), reading: false });
       v.changed.add(address);
     } else {
-      const keys = to === "esc" ? ["esc"] : answerKeys(dialog, to);
+      const keys = to === "esc" ? ["esc"] : answerKeys(now, to);
       await hc(["keys", address, ...keys]).catch(() => {});
       v.changed.delete(address);
       if (to !== "esc" && dialog.options[to].free) {
         v.freeText.add(address);
         v.inputs.get(address)?.focus();
       } else {
-        v.answered.set(address, sig(dialog));
+        v.answered.set(address, { key: promptKey(dialog), dialog, at: Date.now() });
       }
     }
     v.answering.delete(address);
@@ -660,7 +671,7 @@ function loading(t, text) {
 // each option (the one under its cursor marked), and Cancel when Esc cancels. A pill in
 // the sidebar's state color says it's waiting. Once answered, it waits for the prompt to go.
 function dialogCard(v, t, address, name, dialog, status) {
-  const sent = v.answered.get(address) === sig(dialog);
+  const sent = v.answered.get(address)?.key === promptKey(dialog);
   const busy = v.answering.has(address) || sent;
   const [title, ...rest] = (dialog.question || `${name} is asking`).split("\n");
   // The sidebar's state: red "Blocked" for an approval, purple "Needs you" for the rest.
@@ -872,8 +883,10 @@ export function chat(v) {
   // A question the agent shows in its terminal, read off its screen, shows above the reply
   // box to answer, whenever the chat shows (also on coming back from the terminal).
   const screen = !READY.has(p.status) ? v.screens.get(address) : null;
+  const held = !READY.has(p.status) ? v.answered.get(address)?.dialog : null;
   const card = v.freeText.has(address) ? null
     : screen?.dialog ? dialogCard(v, t, address, name, screen.dialog, p.status)
+    : held ? dialogCard(v, t, address, name, held, p.status)
     : p.status === "blocked" && screen?.readAt ? screenCard(v, t, address, name, screen.tail)
     : null;
   const tail = card ? []
