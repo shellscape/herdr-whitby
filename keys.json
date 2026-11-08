@@ -1,5 +1,5 @@
 {
   "layout:whitby-chat": {
-    "ctrl-`": "whitby.toggle_view"
+    "cmd-`": "whitby.toggle_view"
   }
 }

@@ -114,7 +114,7 @@ the same tab, resuming its session, and the conversation stays.
 
 The agent still runs in its terminal. The chat reads the session its CLI writes and types your
 message into the terminal (`hc send`), as you would. An agent opens on its chat and stays there:
-`ctrl-`` switches it to its terminal and back, and Whitby never switches on its own.
+`cmd-`` switches it to its terminal and back, and Whitby never switches on its own.
 
 When the agent asks something in its terminal (Claude's folder trust and its questions, Codex's
 approvals, an update offer), the chat reads it off the agent's screen and shows it as a card
@@ -139,7 +139,7 @@ herdr-app do layout.switch --name whitby-chat
 ```
 
 It needs the rest of Whitby's files (the mod and the themes) installed as above. Merge
-`keys.json` into `~/.config/herdr-app/keys.json` for `ctrl-``: its `layout:whitby-chat` section
+`keys.json` into `~/.config/herdr-app/keys.json` for `cmd-``: its `layout:whitby-chat` section
 works only while Whitby Chat shows.
 
 What it reads and runs, for each Claude Code, Grok and Codex agent in the window:

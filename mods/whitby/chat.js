@@ -5,7 +5,7 @@
 // The agent still runs in its terminal. The chat reads the session its CLI writes (see
 // chat-agents.js), and the composer types into the terminal with `hc send`, as you would.
 // Stop is `hc interrupt`. An agent opens on its chat and stays there until you press the
-// view key (ctrl-`), which switches it to its terminal and back; Whitby never switches on
+// view key (cmd-`), which switches it to its terminal and back; Whitby never switches on
 // its own. A shell or an agent the chat can't read shows its terminal, having no chat.
 // Messages go only to an agent at its prompt or at work, never into one of its dialogs.
 
@@ -50,7 +50,7 @@ function find(node, id) {
 // an update offer) and a blocked one is asking something: Enter would answer either.
 const READY = new Set(["idle", "working", "done"]);
 
-// The agents you switched to their terminal with the view key (ctrl-` in Whitby Chat), by
+// The agents you switched to their terminal with the view key (cmd-` in Whitby Chat), by
 // address. Shared, so the sidebar, the chat and every other part agree.
 const TERMINAL = "whitby.terminal";
 
