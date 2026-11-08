@@ -52,7 +52,7 @@ function railButton(v, t, id, glyph, tip, action) {
     .rounded(4)
     .border(1)
     .border_color(t.border)
-    .bg(t.canvas), v, id)
+    .bg(t.bar), v, id)
     .child(fadeLayer(`${id}-fill`, on, div().size_full().rounded(3).bg(t.hover)))
     .child(div().absolute().inset(0).child(centered(icon(glyph, 18, t.muted))))
     .child(fadeLayer(`${id}-ink`, on, centered(icon(glyph, 18, t.foreground))))
@@ -67,7 +67,7 @@ export function rail(v) {
     .py(7)
     .gap(3.5)
     .items_center()
-    .bg(t.canvas)
+    .bg(t.bar)
     .child(div().flex_1())
     .child(div().my(5.25).child(railButton(v, t, "rail-add", "plus", "New space", () => run("space.new"))))
     .child(div().my(5.25).child(railButton(v, t, "rail-settings", "settings", "Settings", () => run("app.settings"))));

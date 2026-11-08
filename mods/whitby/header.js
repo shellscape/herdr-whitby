@@ -40,7 +40,7 @@ export function shownIn(p) {
 }
 
 // Whitby draws 1px blue lines above and below a focused terminal.
-export const focusLine = (t) => (window()?.active !== false && focused()?.terminal ? t.blue : t.border);
+export const focusLine = (t) => (window()?.active !== false && focused()?.terminal ? t.focus : t.border);
 
 // In Whitby Chat (props icon), the agent's icon before its name, at 22px: the one the
 // sidebar draws for it (Whitby's own for Claude, Grok and Codex, else herdr's). None
@@ -82,7 +82,7 @@ function action(t, id, glyph, label, command, args) {
 export function header() {
   const t = palette();
   const p = current();
-  const frame = h_flex().id("whitby-header").size_full().px(20).gap(16).items_center().bg(t.canvas).border_b(1).border_color(focusLine(t));
+  const frame = h_flex().id("whitby-header").size_full().px(20).gap(16).items_center().bg(t.bar).border_b(1).border_color(focusLine(t));
   if (!p) return frame;
   const tab = spaces().flatMap((s) => s.tabs).find((x) => x.id === p.tab);
   const k = shownIn(p);

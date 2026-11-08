@@ -55,7 +55,15 @@ export function palette() {
     front: tone("#ffffff", "#2f343e"),
     body: tone("#f9f9fb", "#282c33"),
     rowHover: tone("#f9f9fb", "#2f343e"),
-    field: tone("#f8f8fa", "#2f343e"),
+    // The rail, the sidebar's filter row and the agent header: Whitby's canvas in light;
+    // in dark, Zed One Dark's panel and tab bar background.
+    bar: tone(t.canvas, "#2f343e"),
+    // Text fields: in dark, Zed One Dark's search field (the editor's background, edged
+    // in its border).
+    field: tone("#f8f8fa", "#282c33"),
+    // The focused pane's line: Whitby's blue in light; in dark, Zed One Dark's
+    // border.focused.
+    focus: tone("#246cf4", "#47679e"),
     placeholder: tone("#999ba3", "#878a98"),
     footer: tone("#f8f8fa", "#3b414d"),
     footerBorder: tone("#d9d9e0", "#464b57"),

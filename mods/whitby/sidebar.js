@@ -377,6 +377,9 @@ function project(v, t, space, all, ts, pos) {
   return [header, body];
 }
 
+// The filter's field: in dark, edged in the border, as Zed One Dark's search field.
+const filterField = (t, input) => (t.dark ? input.border(1).border_color(t.border).rounded(4) : input);
+
 export function sidebar(v) {
   const t = palette();
   const all = panes();
@@ -396,9 +399,9 @@ export function sidebar(v) {
     .size_full()
     .min_h(0)
     .bg(t.chrome)
-    .child(h_flex().id("filter").h(35).flex_none().pl(8 + PAD).pr(8).gap(4).items_center().border_b(1).border_color(t.border).bg(t.canvas)
+    .child(h_flex().id("filter").h(35).flex_none().pl(8 + PAD).pr(8).gap(4).items_center().border_b(1).border_color(t.border).bg(t.bar)
       .child(icon("search", 14, t.muted))
-      .child(Input.new(v.input).flex_1().min_w(0).py(4).px(4).bg(t.field).text_size(13).text_color(t.foreground)))
+      .child(filterField(t, Input.new(v.input).flex_1().min_w(0).py(4).px(4).bg(t.field).text_size(13).text_color(t.foreground))))
     .child(v_flex().id("projects").relative().flex_1().min_h(0).overflow_y_scrollbar()
       .children([...projects, ...bar]));
 }
