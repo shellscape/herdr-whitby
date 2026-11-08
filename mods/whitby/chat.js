@@ -518,7 +518,29 @@ function userMessage(t, it, faded, caption) {
 // A single newline is a line break, as in a chat and in the agent's own terminal, so a
 // poem or a list of lines keeps its lines. Fenced code is left as it is.
 function breaks(md) {
-  return md.split(/(```[\s\S]*?```)/g).map((part, i) => (i % 2 ? part : part.replace(/([^\n])\n(?=[^\n])/g, "$1  \n"))).join("");
+  return md.split(/(```[\s\S]*?```)/g)
+    .map((part, i) => (i % 2 ? part : part.split("\n").map(ticks).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n")))
+    .join("");
+}
+
+// Inline code that ends in a backtick, as agents write it: `cmd-`` (one backtick to open,
+// two to close), which markdown leaves as plain text, backticks and all. Each such span
+// becomes the code it means (`` cmd-` ``). A span markdown already closes, with a run of
+// backticks as long as its opener, is left as it is.
+function ticks(line) {
+  const runs = [...line.matchAll(/`+/g)];
+  let out = "", at = 0;
+  for (let i = 0; i < runs.length; i++) {
+    const n = runs[i][0].length;
+    const close = runs.findIndex((r, j) => j > i && r[0].length === n);
+    if (close >= 0) { i = close; continue; }
+    const open = runs[i].index, next = runs[i + 1];
+    if (n !== 1 || next?.[0].length !== 2 || next.index === open + 1) continue;
+    out += line.slice(at, open) + "`` " + line.slice(open + 1, next.index) + "` ``";
+    at = next.index + 2;
+    i++;
+  }
+  return out + line.slice(at);
 }
 
 function reply(t, key, it) {
