@@ -457,7 +457,7 @@ function stampText(ms) {
 
 const firstLine = (s) => (s ?? "").split("\n").find((l) => l.trim())?.trim() ?? "";
 const tidy = (s) => firstLine(s).split(home() + "/").join("~/");
-const bubble = (t) => (t.dark ? "#363c46" : "#f0f0f3");
+const bubble = (t) => (t.dark ? "#363c46" : "#f8f8f9");
 
 function stamp(t, ms, i) {
   return h_flex().id(`stamp-${i}`).w_full().justify_center().pt(6).pb(2).text_size(11).text_color(t.muted).child(stampText(ms));
