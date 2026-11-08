@@ -6,7 +6,7 @@ import { div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, terminals, focused, run, openOverlay, window, exec, layout } from "herdr";
 import { ICON, palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, stateWithAsking, askingOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, cpuText, memText, SHOW } from "./kit.js";
-import { showChat, listenForView } from "./chat.js";
+import { showChat, showTabView, listenForView } from "./chat.js";
 
 const SECTIONS = [
   { id: "agents", label: "AGENTS", icon: "sparkles", add: "Add agent" },
@@ -62,6 +62,8 @@ function toggle(v, key, cx) {
 }
 
 function select(space, tab) {
+  // In Whitby Chat, the tab's view (chat or terminal) is set first, so it shows at once.
+  showTabView(tab ?? space.tabs.find((t) => t.active));
   if (!space.active) run("space.select", { id: space.id });
   if (tab) run("tab.select", { id: tab.id });
 }

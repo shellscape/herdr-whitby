@@ -95,6 +95,17 @@ export function listenForView(cx) {
   });
 }
 
+// In Whitby Chat, picks the chat or the terminal for a tab you're about to show (a click
+// in the sidebar), before it shows, so its terminal never flashes on the way to its chat:
+// the chat for the tab's agent, unless you switched it to its terminal; else the terminal.
+export function showTabView(tab) {
+  const stack = find(layout(), "agent-view");
+  if (!stack || !tab) return;
+  const agent = panes().find((p) => p.tab === tab.id && kindOf(p));
+  const want = agent && !(shared(TERMINAL) ?? []).includes(agent.terminal) ? "chat" : "main";
+  if (stack.active !== want) run("layout.select", { stack: "agent-view", child: want });
+}
+
 // In Whitby Chat, shows the chat or the terminal for the shown agent (the "agent-view"
 // stack). The sidebar calls this as it draws, as it does showHome.
 export function showChat(v) {
