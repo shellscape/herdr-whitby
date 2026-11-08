@@ -4,15 +4,16 @@
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { terminals } from "herdr";
-import { palette, keyFor, subCount, stateOf, reportOf, STATE } from "./kit.js";
+import { palette, keyFor, subCount, stateWithAsking, askingOf, reportOf, STATE } from "./kit.js";
 import { current, shownIn, focusLine } from "./header.js";
 import { statusMark } from "./sidebar.js";
 import { usage, providerOf, syncCard } from "./usage.js";
 
-// The agent's activity, with the sidebar's dot ("Working", "Needs you", ...).
+// The agent's activity, with the sidebar's dot ("Working", "Needs you", ...). An agent
+// asking something before it reports (see askingOf) needs you.
 function activity(t, status, address, live) {
-  if (!status) return null;
-  const state = stateOf(status, live, reportOf(address));
+  if (!status && !askingOf(address)) return null;
+  const state = stateWithAsking(status, address, live, reportOf(address));
   return h_flex().flex_none().mr(12).gap(5).items_center().text_color(t.word[state] ?? t.footerMuted)
     .child(statusMark(t, state))
     .child(div().child(STATE[state]));
@@ -58,9 +59,9 @@ export function footer(v) {
     .when(Boolean(stat) && width >= 700, (el) => el
       .child(div().flex_none().mr(12).child(`CPU ${stat.cpu.toFixed(1)}%`))
       .child(div().flex_none().mr(12).child(`MEM ${Math.round(stat.mem / 1000000)} MB`)))
-    .when(Boolean(status), (el) => el.child(activity(t, status, address, live)))
+    .when(Boolean(status) || Boolean(askingOf(address)), (el) => el.child(activity(t, status, address, live)))
     // One state at a time: an agent's own, else a live terminal's "Running".
-    .when(Boolean(address) && !status && live, (el) => el.child(h_flex().flex_none().gap(5).items_center().text_color(t.live)
+    .when(Boolean(address) && !status && !askingOf(address) && live, (el) => el.child(h_flex().flex_none().gap(5).items_center().text_color(t.live)
       .child(statusMark(t, "running"))
       .child(div().child("Running"))));
 }

@@ -94,14 +94,77 @@ that agent's provider, at once and then every two minutes:
 Tokens are held only for the request. They are never saved, shown or sent anywhere else, and
 never renewed: each CLI renews its own.
 
+## Whitby Chat
+
+A second layout, `whitby-chat`, is Whitby with the agent page as a chat, after Grok Bot's. The
+title bar, rail, sidebar, agent header and footer are Whitby's. A Claude Code, Grok or Codex
+agent shows as a conversation in place of its terminal: your messages in blue on the right, its
+replies in grey on the left as markdown, its reasoning folded into a chip, and each tool call as
+a card with its state. Click a card to see its output. Three dots step across while it works.
+Every agent's chat is loaded in the background, so clicking one in the sidebar shows it at
+once, and the agent bar shows the agent's icon beside its name. A new agent shows a spinner
+while it starts. Type in the composer at the bottom: Enter sends, Shift+Enter starts a new line,
+and while the agent works the button stops it. A message to an agent that is starting, or
+asking something in its terminal, is queued: it shows faded, marked "Queued until Claude is
+ready", and goes as soon as the agent is. Under it is the folder the agent works in, by name, with the
+full path on hover. Click it between turns to pick another folder: the agent goes on there in
+the same tab, resuming its session, and the conversation stays.
+
+The agent still runs in its terminal. The chat reads the session its CLI writes and types your
+message into the terminal (`hc send`), as you would. An agent opens on its chat and stays there:
+`cmd-`` switches it to its terminal and back, and Whitby never switches on its own.
+
+When the agent asks something in its terminal (Claude's folder trust and its questions, Codex's
+approvals, an update offer), the chat reads it off the agent's screen and shows it as a card:
+the question, a button for each option, and Cancel when Esc cancels. A button moves the
+agent's cursor there with the arrow keys and presses Enter, as you would. An option that opens
+a field ("Type something.") moves there, and the composer types your answer into it. A question
+that isn't a menu shows the agent's last lines with ↑, ↓, Enter and Esc, and the composer types
+your answer. Messages otherwise go only to an agent at its prompt or at work (`hc send --if`),
+never into one of its dialogs. A shell, or an agent the chat can't read, shows its terminal.
+
+In your messages, questions and notes, web addresses and a dialog's links (Claude's "Security
+guide") are links: only their words are clickable, and their address shows on hover. Paths
+show as inline code. Links in the agent's replies open on a click too, without the hover.
+
+```sh
+cp layouts/whitby-chat.json layouts/whitby-chat.svg ~/.config/herdr-app/layouts/
+herdr-app do layout.switch --name whitby-chat
+```
+
+It needs the rest of Whitby's files (the mod and the themes) installed as above. Merge
+`keys.json` into `~/.config/herdr-app/keys.json` for `cmd-``: its `layout:whitby-chat` section
+works only while Whitby Chat shows.
+
+What it reads and runs, for each Claude Code, Grok and Codex agent in the window:
+
+- Claude Code: `~/.claude/sessions/<pid>.json` for the session, then that session's transcript
+  in `~/.claude/projects/`.
+- Grok: `~/.grok/active_sessions.json`, then the session's `updates.jsonl`.
+- Codex: the first line of the newest rollouts in `~/.codex/sessions/`, then the one for the
+  agent's folder (or, once it has moved folders, the one its session ID names). Two Codex
+  agents in one folder both show the newest one.
+- Each session's file is found by its ID (`ls`), since a session moved to another folder keeps
+  writing to the file it started in.
+- `hc get` once every 10 seconds, and `stat` and `tail` on the session file, every 0.6 seconds
+  for the agent shown and every 4 seconds for the others, while the window is in front.
+- While an agent starts or is blocked, `hc read` of its screen every 0.5 seconds (every 2 for
+  agents not shown), and `hc keys` when you answer it.
+- It sends with `hc send` and stops with `hc interrupt`. Moving folders opens the agent's CLI
+  in the new folder beside it (`terminal.open`) and closes the old one (`pane.close`).
+
 ## Develop
 
 ```
 layouts/whitby.json   the window: title bar, rail, sidebar, and the agent page or Projects page
 layouts/whitby.svg    the picture Herdr's settings show for the layout
+layouts/whitby-chat.* Whitby Chat: whitby.json with the agent page's terminal in a stack with the chat
 themes/               the light and dark themes: Whitby's palette and terminal colors
 mods/whitby/          one mod; props.part picks what each block draws
-  main.js             picks the part: titlebar, rail, sidebar, header, footer, home
+  main.js             picks the part: titlebar, rail, sidebar, header, footer, home, chat
+  chat.js             Whitby Chat's conversation and composer, and which of chat or terminal shows
+  chat-agents.js      how Claude Code's, Grok's and Codex's sessions are found and read
+  chat-screen.js      what an agent asks in its terminal, read off its screen, and how to answer
   kit.js              palette, titles, states, unread, sub-agents, CPU and memory
   sidebar.js          the projects sidebar and its status dots
   titlebar.js bell.js the title bar and the attention bell

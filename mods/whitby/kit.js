@@ -151,8 +151,26 @@ export function blockedState(kind) {
 const ATTENTION = new Set(["done", "blocked", "needs", "error"]);
 const READ = "whitby.read";
 
+// Agents asking something they haven't reported to herdr: a dialog before they start (as
+// Claude Code's folder trust or Codex's update offer) says nothing. Whitby Chat reads it off
+// their screen and shares it here, address → "needs", so every part shows them waiting on you.
+export const ASKING = "whitby.asking";
+export const askingOf = (address) => (address ? (shared(ASKING) ?? {})[address] ?? null : null);
+
+// An agent's state with what Whitby Chat read: an unreported question is "needs".
+export const stateWithAsking = (status, address, live = true, report = null) =>
+  (!status && live && askingOf(address)) || stateOf(status, live, report);
+
+// Every agent, and every terminal asking something it hasn't reported (see ASKING).
+function waitingAgents() {
+  const listed = agents();
+  const asking = panes().filter((p) => p.terminal && !p.status && askingOf(p.terminal) && !listed.some((a) => a.address === p.terminal))
+    .map((p) => ({ address: p.terminal, pane: p.pane, status: null }));
+  return [...listed, ...asking];
+}
+
 export function attentionOf(status, address, ts = terminals()) {
-  const state = stateOf(status, true, reportOf(address, ts));
+  const state = stateWithAsking(status, address, true, reportOf(address, ts));
   return ATTENTION.has(state) ? state : null;
 }
 
@@ -164,7 +182,7 @@ export function isUnread(status, address, ts = terminals()) {
 // Agents that are unread, most urgent first: errors and blocks, then finished work.
 export function unreadAgents(ts = terminals()) {
   const rank = { error: 0, blocked: 1, needs: 2, done: 3 };
-  return agents()
+  return waitingAgents()
     .filter((a) => isUnread(a.status, a.address, ts))
     .sort((x, y) => rank[attentionOf(x.status, x.address, ts)] - rank[attentionOf(y.status, y.address, ts)]);
 }
@@ -174,13 +192,14 @@ export function unreadAgents(ts = terminals()) {
 export function markRead(ts = terminals()) {
   const read = shared(READ) ?? {};
   const next = {};
-  for (const a of agents()) {
+  const all = waitingAgents();
+  for (const a of all) {
     const state = attentionOf(a.status, a.address, ts);
     if (state && read[a.address] === state) next[a.address] = state;
   }
   const f = focused();
   if (window()?.active !== false && f?.terminal) {
-    const a = agents().find((x) => x.address === f.terminal);
+    const a = all.find((x) => x.address === f.terminal);
     const state = a && attentionOf(a.status, a.address, ts);
     if (state) next[a.address] = state;
   }

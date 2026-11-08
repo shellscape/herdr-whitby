@@ -5,7 +5,8 @@
 import { div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { spaces, panes, terminals, focused, run, openOverlay, window, exec, layout } from "herdr";
-import { ICON, palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, cpuText, memText, SHOW } from "./kit.js";
+import { ICON, palette, alpha, icon, lead, tabTitle, subCount, helperCount, children, subStatus, stateOf, stateWithAsking, askingOf, reportOf, isUnread, markRead, childTitle, sampleStats, badges, cpuText, memText, SHOW } from "./kit.js";
+import { showChat, listenForView } from "./chat.js";
 
 const SECTIONS = [
   { id: "agents", label: "AGENTS", icon: "sparkles", add: "Add agent" },
@@ -21,6 +22,7 @@ const PAD = 8;
 
 export function initSidebar(v, cx) {
   sampleStats(v, cx);
+  listenForView(cx);
   v.folded = new Set(JSON.parse(localStorage.getItem("folded") ?? "[]"));
   v.filter = "";
   v.hover = null;
@@ -83,6 +85,10 @@ function place(space, all) {
   const tabs = new Set(space.tabs.map((tab) => tab.id));
   return all.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || space.folder;
 }
+
+// A tab is an agent's when its agent reports a status, or when Whitby Chat found it asking
+// something before it did (see askingOf).
+const isAgent = (tab, all) => Boolean(tab.status) || Boolean(askingOf(lead(tab, all)?.terminal));
 
 // Status dots, 7px in soft colors: green while running, blue when done, grey when idle,
 // light grey when stopped, solid red on an error; working (green), blocked (red) and
@@ -229,8 +235,8 @@ function row(v, t, space, tab, all, ts, selected, pos) {
     .on_hover((on, cx) => { if (on) v.hoverRow = tab.id; else if (v.hoverRow === tab.id) v.hoverRow = null; cx.notify(); })
     .on_click(() => go())
     .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, props: { tab: "tab", target: { id: tab.id, space: space.id } } }))
-    .child(agentIcon(tab.status ? p : null, Boolean(p) && f?.pane === p.pane))
-    .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, stateOf(tab.status, true, reportOf(p?.terminal, ts)))))
+    .child(agentIcon(isAgent(tab, all) ? p : null, Boolean(p) && f?.pane === p.pane))
+    .child(h_flex().w(14).flex_none().justify_center().items_center().child(statusMark(t, stateWithAsking(tab.status, p?.terminal, true, reportOf(p?.terminal, ts)))))
     .child(title(t, tabTitle(tab, all), Boolean(p?.terminal) && isUnread(tab.status, p.terminal, ts), kids > 0 && !open, kids))
     .children(helpers(t, tab.id, helperCount(p?.terminal, ts)))
     .children(stats(t, badges(v.stats?.[p?.terminal], SHOW.rowCpu, SHOW.rowMem), tab.id, v.stats?.[p?.terminal]))
@@ -349,8 +355,8 @@ function project(v, t, space, all, ts, pos) {
     }, { cpu: 0, mem: 0 }), SHOW.projectCpu, SHOW.projectMem)))
     .when(!space.machine, (el) => el.child(reveal(v, t, space, all)));
   if (!open) return [header];
-  const agents = tabs.filter((tab) => tab.status);
-  const shells = tabs.filter((tab) => !tab.status);
+  const agents = tabs.filter((tab) => isAgent(tab, all));
+  const shells = tabs.filter((tab) => !isAgent(tab, all));
   pos.y += BODY_PAD;
   const rows = [
     ...section(v, t, space, SECTIONS[0], agents, true, all, ts, pos),
@@ -375,6 +381,7 @@ export function sidebar(v) {
   const active = window()?.active !== false;
   const pos = { y: 0, selected: null };
   showHome(v, spaces().length === 0);
+  showChat(v);
   markRead(ts);
   const projects = spaces().flatMap((space) => project(v, t, space, all, ts, pos));
   // Whitby's selection: one blue bar, 85% of the row tall, sliding between rows in 200ms.
