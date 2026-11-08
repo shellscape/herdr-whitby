@@ -30,7 +30,7 @@ export function bell(v) {
     .child(fadeLayer("whitby-bell-fill", hovered(v, "bell"), glyph("attention-bell-fill", t.dark ? "#4a6aa8" : "#c6d8fc")))
     .child(glyph("attention-bell", t.blue))
     .child(pressLayer("whitby-bell-press", alpha(t.blue, 0.14), 6, () => run("pane.focus", { pane: waiting[0].pane })))
-    .child(div().absolute().top(PAD - 4).left(PAD + BELL - 9).min_w(14).px(3.5).py(1.75).rounded_full().bg(t.blue)
+    .child(div().absolute().top(PAD - 4).left(PAD + BELL - 9).min_w(14).px(3.5).py(1.75).rounded_full().bg(t.solid)
       .text_color("#ffffff").text_size(10.5).line_height("10.5px").font_weight(600).flex().justify_center()
       .child(waiting.length > 9 ? "9+" : String(waiting.length)));
   return div().absolute().top(TOP - PAD).right(RIGHT - PAD).child(withTip("bell", tip, target));

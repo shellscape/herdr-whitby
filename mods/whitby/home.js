@@ -44,10 +44,10 @@ function addProject(v, cx) {
 
 function legend(t) {
   const hints = HINTS.map(([command, label]) => [label, keyFor(command)]).filter(([, key]) => key);
-  return v_flex().mt(10.5).w_full().items_end().gap(1.75).text_size(10.5).text_color(alpha(t.muted, 0.75))
+  return v_flex().mt(10.5).w_full().items_end().gap(1.75).text_size(10.5).text_color(t.fade(0.75))
     .children(hints.map(([label, key]) => h_flex().gap(5.25).items_center().line_height("14px")
       .child(div().child(label))
-      .child(div().font_family("Menlo").text_color(alpha(t.muted, 0.65)).child(key))));
+      .child(div().font_family("Menlo").text_color(t.fade(0.65)).child(key))));
 }
 
 export function home(v) {
@@ -93,7 +93,7 @@ export function home(v) {
     .child(h_flex().gap(8.75).items_center().text_size(14).line_height("21px").font_weight(600).text_color(t.foreground)
       .child(icon("folder-open", 14, t.muted))
       .child(div().child("Projects")))
-    .child(div().mt(3.5).text_size(12.25).line_height("17.5px").text_color(alpha(t.muted, 0.7))
+    .child(div().mt(3.5).text_size(12.25).line_height("17.5px").text_color(t.fade(0.7))
       .child("All the projects loaded in Herdr."))
     .child(div().mt(17.5).text_size(10.5).line_height("14px").text_color(t.muted)
       .child(`${count} ${count === 1 ? "project" : "projects"}`))

@@ -229,8 +229,8 @@ function meter(t, w) {
     .child(h_flex().items_center().justify_between()
       .child(div().text_size(11.5).text_color(t.foreground).child(w.label))
       .child(div().text_size(11.5).font_weight(600).text_color(level(t, w.used) ?? t.foreground).child(`${percent(w.used)} used`)))
-    .child(bar(t, w.used, 3, alpha(t.muted, 0.15)))
-    .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(capital(resetText(w.reset))));
+    .child(bar(t, w.used, 3, t.fade(0.15)))
+    .child(div().text_size(10).text_color(t.fade(0.7)).child(capital(resetText(w.reset))));
 }
 
 function fact(t, label, value) {
@@ -263,11 +263,11 @@ export function usageCard(card) {
       .rounded(8)
       .shadow_md()
       .child(h_flex().gap(6).items_center()
-        .child(div().flex_none().text_size(10).font_weight(600).text_color(alpha(t.muted, 0.6)).child((u.team ? `${p.name} (Team)` : p.name).toUpperCase()))
-        .child(div().flex_1().min_w(0).h(1).bg(alpha(t.muted, 0.15)))
-        .when(updated != null, (el) => el.child(div().flex_none().text_size(10).text_color(alpha(t.muted, 0.5)).child(updated < 1 ? "Updated just now" : `Updated ${updated}m ago`))))
+        .child(div().flex_none().text_size(10).font_weight(600).text_color(t.fade(0.6)).child((u.team ? `${p.name} (Team)` : p.name).toUpperCase()))
+        .child(div().flex_1().min_w(0).h(1).bg(t.fade(0.15)))
+        .when(updated != null, (el) => el.child(div().flex_none().text_size(10).text_color(t.fade(0.5)).child(updated < 1 ? "Updated just now" : `Updated ${updated}m ago`))))
       .when(Boolean(u.team), (el) => el
-        .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(`Usage limits are managed by ${u.team}`))
+        .child(div().text_size(10).text_color(t.fade(0.7)).child(`Usage limits are managed by ${u.team}`))
         .child(session
           ? v_flex().gap(4)
             .child(fact(t, "Session cost", dollars(session.cost)))
@@ -278,7 +278,7 @@ export function usageCard(card) {
       .children((u.windows ?? []).map((w) => meter(t, w)))
       .when(Boolean(u.error), (el) => el.child(v_flex().gap(2)
         .child(div().text_size(11.5).font_weight(600).text_color(t.warn).child(u.error.title))
-        .child(div().text_size(10).text_color(alpha(t.muted, 0.7)).child(u.error.detail))))
+        .child(div().text_size(10).text_color(t.fade(0.7)).child(u.error.detail))))
       .when(!u.windows && !u.error, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Reading usage…"))));
 }
 

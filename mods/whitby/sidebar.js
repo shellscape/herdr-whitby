@@ -116,7 +116,8 @@ function agentIcon(p, on) {
   const own = GLYPHS[prog?.key] ?? GLYPHS[p?.app];
   const glyph = own ? svg(own).size(16)
     : prog?.icon ? (prog.tint ? svg(prog.icon).size(16) : image(prog.icon).w(16).h(16)) : null;
-  return h_flex().w(21).flex_none().justify_center().items_center().opacity(on ? 1 : 0.2)
+  // At rest it's faint: 20% in light, 45% in dark (3:1 on its ground).
+  return h_flex().w(21).flex_none().justify_center().items_center().opacity(on ? 1 : palette().dark ? 0.45 : 0.2)
     .when(Boolean(glyph), (el) => el.child(glyph.flex_none()));
 }
 
@@ -163,7 +164,7 @@ function fold(v, t, key, open, shown) {
     // Acts on the press and stops it: inside a clickable row, the row's own click
     // would otherwise take it.
     .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); toggle(v, key, cx); })
-    .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, alpha(t.muted, 0.4)));
+    .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, t.fade(0.4)));
 }
 
 // A row's title, the unread dot while it wants your attention unseen (see isUnread), and
@@ -173,7 +174,7 @@ function title(t, text, unread, folded, count) {
     .child(div().min_w(0).truncate().text_size(12.25).font_weight(600).child(text))
     // Whitby's unread dot, 5px, raised to the top of the title's capitals.
     .when(unread, (el) => el.child(div().ml(3).size(5).flex_none().rounded_full().relative().top(-4).bg(t.blue)))
-    .when(folded, (el) => el.child(div().ml(4).flex_none().text_size(12.25).text_color(alpha(t.muted, 0.7)).child(`(+${count} ${count === 1 ? "subagent" : "subagents"})`)));
+    .when(folded, (el) => el.child(div().ml(4).flex_none().text_size(12.25).text_color(t.fade(0.7)).child(`(+${count} ${count === 1 ? "subagent" : "subagents"})`)));
 }
 
 // Sub-agents under a terminal, depth first, each indented one level more; a folded
@@ -258,7 +259,7 @@ function addRow(t, space, section, pos) {
     .items_center()
     .cursor_pointer()
     .text_size(10.5)
-    .text_color(alpha(t.muted, 0.5))
+    .text_color(t.fade(0.5))
     .hover((s) => s.text_color(t.muted))
     .on_click(() => add(space, section))
     .child(h_flex().w(14).flex_none().justify_center().child(icon("sidebar-plus", 10.5)))
@@ -286,15 +287,15 @@ function section(v, t, space, sec, tabs, first, all, ts, pos) {
     })
     .child(div().id(`sec-fold-${key}`).ml(-5.25).w(21).h(21).flex_none().flex().items_center().justify_center().rounded(3.5)
       .cursor_pointer().hover((s) => s.bg(t.selected)).on_click((_e, cx) => toggle(v, key, cx))
-      .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, alpha(t.muted, 0.4))))
-    .child(h_flex().w(14).flex_none().justify_center().child(icon(sec.icon, 10.5, alpha(t.muted, 0.6))))
-    .child(div().flex_none().text_size(10).font_weight(600).text_color(alpha(t.muted, 0.6)).child(sec.label))
-    .child(div().flex_1().min_w(0).h(1).bg(alpha(t.muted, 0.15)))
+      .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, t.fade(0.4))))
+    .child(h_flex().w(14).flex_none().justify_center().child(icon(sec.icon, 10.5, t.fade(0.6))))
+    .child(div().flex_none().text_size(10).font_weight(600).text_color(t.fade(0.6)).child(sec.label))
+    .child(div().flex_1().min_w(0).h(1).bg(t.fade(0.15)))
     .child(div().id(`sec-add-${key}`).size(17.5).flex_none().flex().items_center().justify_center().rounded(3.5)
       .text_color(t.muted).opacity(v.hover === key ? 1 : 0).cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip(sec.add).on_click((_e, cx) => { cx.stop_propagation(); add(space, sec); })
       .child(icon("sidebar-plus", 10.5)))
-    .child(div().id(`sec-count-${key}`).flex_none().text_size(10).text_color(alpha(t.muted, 0.5))
+    .child(div().id(`sec-count-${key}`).flex_none().text_size(10).text_color(t.fade(0.5))
       .when(sec.id === "agents", (el) => el.tooltip(`${count} ${tabs.length === 1 ? "Agent" : "Agents"} Working`))
       .child(count));
   if (!open) return [header];
@@ -349,7 +350,7 @@ function project(v, t, space, all, ts, pos) {
     .child(div().id(`proj-fold-${space.id}`).ml(-5.25).w(21).h(21).flex_none().flex().items_center().justify_center().rounded(3.5)
       .hover((s) => s.bg(t.selected))
       .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); toggle(v, space.id, cx); })
-      .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, working ? t.running : alpha(t.muted, 0.4))))
+      .child(icon(open ? "sidebar-chevron-down" : "sidebar-chevron-right", 10.5, working ? t.running : t.fade(0.4))))
     .child(div().flex_1().min_w(0).truncate().text_size(12.25).font_weight(700).text_color(t.foreground).child(space.name))
     .children(stats(t, badges(spaceTerminals(space, all, ts).reduce((sum, a) => {
       const s = v.stats?.[a];

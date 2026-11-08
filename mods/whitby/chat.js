@@ -475,7 +475,7 @@ const PICK = /https?:\/\/|(^|\s)(~|\.{1,2})?\/[^\s/]/;
 
 function link(t, id, label, url, o) {
   return div().id(`${id}-tip`).flex_none().tooltip(url)
-    .child(div().id(id).text_color(o.link ?? t.blue).cursor_pointer().when(Boolean(o.underline), (el) => el.underline())
+    .child(div().id(id).text_color(o.link ?? t.link).cursor_pointer().when(Boolean(o.underline), (el) => el.underline())
       .hover((s) => s.underline()).on_click(() => exec("open", [url])).child(label));
 }
 
@@ -483,7 +483,7 @@ function word(t, id, w, o) {
   const trail = w.match(TRAIL)?.[0] ?? "";
   const core = trail ? w.slice(0, -trail.length) : w;
   const el = URL.test(core) ? link(t, id, core, core, o)
-    : PATH.test(core) ? div().flex_none().px(4).rounded(RADIUS).bg(o.code ?? alpha(t.muted, 0.14)).font_family(MONO).text_size(o.codeSize ?? 11.5).child(core)
+    : PATH.test(core) ? div().flex_none().px(4).rounded(RADIUS).bg(o.code ?? t.codeBg).font_family(MONO).text_size(o.codeSize ?? 11.5).child(core)
     : null;
   if (!el) return div().flex_none().mr(4).child(w);
   return h_flex().flex_none().mr(4).items_center().child(el).when(Boolean(trail), (h) => h.child(div().child(trail)));
@@ -580,7 +580,7 @@ function chip(v, t, key, group) {
   const label = running ? `Running · ${tidy(call.detail) || call.name}` : folded(group.kind, group.calls);
   const opens = !running || Boolean(call.output);
   return h_flex().id(`chip-${key}`).flex_none().max_w(420).h(26).px(9).gap(6).items_center().rounded(RADIUS)
-    .border(1).border_color(open ? alpha(t.muted, 0.45) : t.border).bg(t.front).text_size(12).text_color(open ? t.foreground : t.muted)
+    .border(1).border_color(open ? t.fade(0.45) : t.border).bg(t.front).text_size(12).text_color(open ? t.foreground : t.muted)
     .when(opens, (el) => el.cursor_pointer().hover((s) => s.text_color(t.foreground).bg(t.rowHover)).on_click((_e, cx) => toggle(v, key, cx)))
     .child(running ? svg(ICON_LOADER).size(12).flex_none().spin(900) : icon(FOLD[group.kind].icon, 12))
     .child(div().min_w(0).truncate().child(label))
@@ -640,8 +640,8 @@ function note(t, it, i) {
 const DOT_STEPS = [["●", " ", " "], [" ", "●", " "], [" ", " ", "●"]];
 function typing(t) {
   const dot = (steps, i) => div().id(`chat-dot-${i}`).relative().w(10).h(16).text_size(10).line_height("16px")
-    .child(div().w_full().text_center().text_color(alpha(t.muted, 0.3)).child("●"))
-    .child(div().absolute().inset(0).text_center().text_color(alpha(t.muted, 0.85)).frames(steps, 300));
+    .child(div().w_full().text_center().text_color(t.fade(0.3)).child("●"))
+    .child(div().absolute().inset(0).text_center().text_color(t.fade(0.85)).frames(steps, 300));
   return h_flex().w_full().justify_start()
     .child(h_flex().id("chat-typing").h(38).px(15).gap(2).items_center().rounded(RADIUS).bg(bubble(t))
       .children(DOT_STEPS.map(dot)));
@@ -649,7 +649,7 @@ function typing(t) {
 
 function messages(v, t, address, feed) {
   const out = [];
-  if (feed.cut) out.push(h_flex().w_full().justify_center().py(2).text_size(11).text_color(alpha(t.muted, 0.7)).child("Earlier messages are in the terminal's session."));
+  if (feed.cut) out.push(h_flex().w_full().justify_center().py(2).text_size(11).text_color(t.fade(0.7)).child("Earlier messages are in the terminal's session."));
   let last = 0;
   let run = [];
   const fold = () => { if (run.length) out.push(toolRun(v, t, address, run)); run = []; };
@@ -768,7 +768,7 @@ function viewport(v, t, address, body) {
   const thumb = fits ? [] : (() => {
     const h = Math.max(28, (v.viewH * v.viewH) / v.contentH);
     const top = (v.viewH - h) * (1 - v.lift / room);
-    return [div().absolute().right(3).top(top).w(5).h(h).rounded_full().bg(alpha(t.muted, 0.28))];
+    return [div().absolute().right(3).top(top).w(5).h(h).rounded_full().bg(t.fade(0.28))];
   })();
   const latest = v.lift > 80 ? [h_flex().absolute().bottom(12).left(0).right(0).justify_center()
     .child(h_flex().id("chat-latest").gap(5).items_center().px(12).py(5).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
@@ -800,10 +800,10 @@ function viewport(v, t, address, body) {
 
 function sendButton(v, t, address, ready) {
   return div().id(`send-${address}`).size(30).flex_none().flex().items_center().justify_center().rounded(RADIUS)
-    .bg(ready ? t.solid : alpha(t.muted, 0.16))
+    .bg(ready ? t.solid : t.fade(0.16))
     .when(ready, (el) => el.cursor_pointer().hover((s) => s.opacity(0.88))
       .on_click((_e, cx) => send(v, address, v.inputs.get(address)?.value() ?? "", cx)))
-    .child(icon("arrow-up", 16, ready ? t.solid_foreground : alpha(t.muted, 0.8)));
+    .child(icon("arrow-up", 16, ready ? t.solid_foreground : t.fade(0.8)));
 }
 
 function stopButton(t, address) {
@@ -877,7 +877,7 @@ function composerArea(v, t, target, answering) {
           .text_size(13.5).text_color(t.placeholder).child(answeringByText(v, address) ? "Type your answer" : `Message ${KINDS[target.kind].name}`)))
         .child(st ? Textarea.new(st).w_full().py(5).bg(alpha(t.front, 0)).text_size(13.5).text_color(t.foreground) : div().h(30)))
       .child(answering && !ready ? stopButton(t, address) : sendButton(v, t, address, ready)))
-    .child(h_flex().w_full().max_w(COLUMN).mt(6).px(14).gap(12).items_center().justify_between().text_size(10.5).text_color(alpha(t.muted, 0.85))
+    .child(h_flex().w_full().max_w(COLUMN).mt(6).px(14).gap(12).items_center().justify_between().text_size(10.5).text_color(t.fade(0.85))
       .child(folderChip(v, t, target))
       .child(div().flex_none().child("⏎ send  ·  ⇧⏎ new line")));
 }
