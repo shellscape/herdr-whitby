@@ -151,6 +151,10 @@ export function blockedState(kind) {
 const ATTENTION = new Set(["done", "blocked", "needs", "error"]);
 const READ = "whitby.read";
 
+// In Whitby Chat, the agents switched to their terminal (the view key, or Split), by
+// address; the rest show their chat. Shared, so every part agrees.
+export const TERMINAL = "whitby.terminal";
+
 // Agents asking something they haven't reported to herdr: a dialog before they start (as
 // Claude Code's folder trust or Codex's update offer) says nothing. Whitby Chat reads it off
 // their screen and shares it here, address → "needs", so every part shows them waiting on you.

@@ -4,15 +4,29 @@
 
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { panes, terminals, focused, spaces, run, window, props } from "herdr";
-import { palette, icon, lead, paneTitle, tabTitle, childTitle, folder, stateOf, reportOf, askingOf, STATE } from "./kit.js";
+import { panes, terminals, focused, spaces, run, window, props, layout, shared, setShared } from "herdr";
+import { palette, icon, lead, paneTitle, tabTitle, childTitle, folder, stateOf, reportOf, askingOf, STATE, TERMINAL } from "./kit.js";
 import { KINDS, kindOf, unlisted } from "./chat-agents.js";
 
-// The pane the header and footer describe: the focused one, else the shown tab's.
+function find(node, id) {
+  if (node?.id === id) return node;
+  for (const child of node?.children ?? []) {
+    const found = find(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// The pane the header and footer describe: the focused one, else the shown tab's. In
+// Whitby Chat with the chat showing, the agent it shows: another pane of its tab (a split)
+// can have the keyboard while the chat stays on the agent.
 export function current() {
   const all = panes();
   const f = focused();
   const own = f?.pane && all.find((p) => p.pane === f.pane);
+  if (own && !kindOf(own) && find(layout(), "agent-view")?.active === "chat") {
+    return all.find((p) => p.tab === own.tab && p.pane !== own.pane && kindOf(p)) ?? own;
+  }
   if (own) return own;
   const tab = spaces().find((s) => s.active)?.tabs.find((t) => t.active);
   return tab ? lead(tab, all) : null;
@@ -39,6 +53,17 @@ function agentIcon(t, p) {
   return glyph ? [glyph.flex_none().text_color(t.foreground)] : [];
 }
 
+// Split, as herdr's: a new terminal beside the pane. In Whitby Chat it's also your switch to
+// the agent's terminal view (as the view key is), so you see the split you made; the view
+// key brings the chat back.
+function split(p) {
+  run("pane.split", { direction: "right", pane: p.pane });
+  if (!props()?.icon || !kindOf(p)) return;
+  const list = shared(TERMINAL) ?? [];
+  if (!list.includes(p.terminal)) setShared(TERMINAL, [...list, p.terminal]);
+  run("layout.select", { stack: "agent-view", child: "main" });
+}
+
 function action(t, id, glyph, label, command, args) {
   return h_flex()
     .id(id)
@@ -49,7 +74,7 @@ function action(t, id, glyph, label, command, args) {
     .text_color(t.muted)
     .cursor_pointer()
     .hover((s) => s.text_color(t.foreground))
-    .on_click(() => run(command, args))
+    .on_click(() => (typeof command === "function" ? command() : run(command, args)))
     .child(glyph.startsWith("mods/") ? svg(glyph).size(13).flex_none() : icon(glyph, 13))
     .child(div().child(label));
 }
@@ -83,7 +108,7 @@ export function header() {
     .child(v_flex().flex_1().min_w(0)
       .child(div().truncate().text_size(15).font_weight(600).text_color(t.foreground).child(name))
       .child(div().mt(4).truncate().text_size(11).text_color(t.muted).child(state ? `${tool}  ·  ${state}` : tool)))
-    .child(action(t, "head-split", "mods/pane/split-right.svg", "Split", "pane.split", { direction: "right", pane: p.pane }))
+    .child(action(t, "head-split", "mods/pane/split-right.svg", "Split", () => split(p)))
     .when(several, (el) => el.child(action(t, "head-zoom", p.zoomed ? "minimize-2" : "maximize-2", p.zoomed ? "Unzoom" : "Zoom", "pane.zoom", { pane: p.pane })))
     // Closing a shown sub-agent goes back to the pane's own terminal, never closes the parent's pane.
     .child(action(t, "head-close", "x", "Close", k ? "terminal.show" : "pane.close", { pane: p.pane }));

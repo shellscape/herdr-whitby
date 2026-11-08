@@ -12,7 +12,7 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView } from "gpui-base";
 import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand } from "herdr";
-import { palette, alpha, icon, stateOf, reportOf, ASKING, STATE } from "./kit.js";
+import { palette, alpha, icon, stateOf, reportOf, ASKING, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
 import { readDialog, answerKeys, screenTail, LINKS } from "./chat-screen.js";
@@ -52,17 +52,15 @@ function find(node, id) {
 // an update offer) and a blocked one is asking something: Enter would answer either.
 const READY = new Set(["idle", "working", "done"]);
 
-// The agents you switched to their terminal with the view key (cmd-` in Whitby Chat), by
-// address. Shared, so the sidebar, the chat and every other part agree.
-const TERMINAL = "whitby.terminal";
-
 // The agent the page shows, if it's one the chat reads: the header's pane, or a sub-agent
-// shown in it. `ready`: at its prompt or at work, so a message can go in. `sub`: a shown
-// sub-agent, which has no pane of its own to move.
+// shown in it; with another pane of its tab focused (a split), the tab's agent. `ready`: at
+// its prompt or at work, so a message can go in. `sub`: a shown sub-agent, which has no
+// pane of its own to move.
 function shownAgent() {
   const pane = current();
   const k = shownIn(pane);
-  const p = k ? { ...pane, terminal: k.address, program: k.program, app: k.agent, status: k.status, cwd: k.cwd } : pane;
+  let p = k ? { ...pane, terminal: k.address, program: k.program, app: k.agent, status: k.status, cwd: k.cwd } : pane;
+  if (!k && pane && !kindOf(pane)) p = panes().find((x) => x.tab === pane.tab && x.pane !== pane.pane && kindOf(x)) ?? pane;
   const kind = kindOf(p);
   return kind ? { p, kind, address: p.terminal, ready: READY.has(p.status), sub: Boolean(k) } : null;
 }
@@ -74,19 +72,26 @@ function chatTarget() {
   return a && !(shared(TERMINAL) ?? []).includes(a.address) ? a : null;
 }
 
-// The view key: the shown agent between its chat and its terminal.
+// The view key: the shown agent (the tab's, from any of its panes) between its chat and
+// its terminal.
 export function toggleView() {
   const a = shownAgent();
   if (!a) return;
   const list = shared(TERMINAL) ?? [];
   setShared(TERMINAL, list.includes(a.address) ? list.filter((x) => x !== a.address) : [...list, a.address]);
+  showChat({});
 }
 
-// The view key arrives as the mod command whitby.toggle_view (keys.json); the sidebar,
-// always on screen, listens for it.
+// The view key arrives as the mod command whitby.view (keys.json); the sidebar, always on
+// screen, listens for it. The loop touches its cx before acting, so a reloaded build's loop
+// ends there instead of acting too (herdr ends an old build's loop at its next cx use).
 export function listenForView(cx) {
-  cx.spawn(async () => {
-    for (;;) if ((await nextCommand()) === "toggle_view") toggleView();
+  cx.spawn(async (cx) => {
+    for (;;) {
+      const command = await nextCommand();
+      cx.notify();
+      if (command === "view") toggleView();
+    }
   });
 }
 
@@ -163,6 +168,8 @@ function chatAgents() {
 // behind others, only first loads happen. Queued messages go whenever their agent is ready.
 function tick(v, cx) {
   if (!find(layout(), "agent-view")) return;
+  // The chat or the terminal, as the shown agent's view is set (see showChat).
+  showChat(v);
   const shown = chatTarget()?.address;
   const front = window()?.active !== false;
   const now = Date.now();
