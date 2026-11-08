@@ -53,7 +53,7 @@ function legend(t) {
 export function home(v) {
   const t = palette();
   const count = spaces().length;
-  const border = t.dark ? "#272a2d" : "#e0e1e6";
+  const border = t.dark ? "#363c46" : "#e0e1e6";
   const add = h_flex()
     .id("home-add")
     .relative()
@@ -78,7 +78,7 @@ export function home(v) {
       .opacity(v.hoverAdd && !v.adding ? 0.5 : 0).transition("opacity", 150)
       .child(icon("arrow-right", 14, t.muted)));
   const card = v_flex().id("home-card").w_full().min_w(0).rounded(7).border(1).border_color(border)
-    .bg(t.dark ? "#18191b" : "#f9f9fb").overflow_hidden().child(add);
+    .bg(t.dark ? "#2f343e" : "#f9f9fb").overflow_hidden().child(add);
   // The platter sits just below the card, 120% of the column wide, at 5%.
   const wide = v.column * 1.2;
   const platter = div().absolute().left(0).top("100%").w_full().flex().justify_center()

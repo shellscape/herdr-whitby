@@ -33,14 +33,14 @@ export function palette() {
     failed: "#b54343",
     warn: tone("#b7791f", "#d49338"),
     blue: "#246cf4",
-    front: tone("#ffffff", "#18191b"),
-    body: tone("#f9f9fb", "#111113"),
-    rowHover: tone("#f9f9fb", "#18191b"),
-    field: tone("#f8f8fa", "#19191c"),
-    placeholder: tone("#999ba3", "#8d93a0"),
-    footer: tone("#f8f8fa", "#202632"),
-    footerBorder: tone("#d9d9e0", "#303846"),
-    footerMuted: tone("#60646c", "#9aa4b4"),
+    front: tone("#ffffff", "#2f343e"),
+    body: tone("#f9f9fb", "#282c33"),
+    rowHover: tone("#f9f9fb", "#2f343e"),
+    field: tone("#f8f8fa", "#2f343e"),
+    placeholder: tone("#999ba3", "#878a98"),
+    footer: tone("#f8f8fa", "#3b414d"),
+    footerBorder: tone("#d9d9e0", "#464b57"),
+    footerMuted: tone("#60646c", "#a9afbc"),
   };
 }
 
