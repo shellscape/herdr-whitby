@@ -13,18 +13,24 @@ export function alpha(color, amount) {
   return color + Math.round(amount * 255).toString(16).padStart(2, "0");
 }
 
-// Whitby's faint steps of muted (labels, counts, fold arrows, rules) read too low on dark
-// mode's grounds at the same strength: dark lifts each to WCAG's 4.5:1 for text and 3:1 for
-// marks, by the step's light value. Light keeps Whitby's own.
-const LIFT = { 0.15: 0.22, 0.28: 0.35, 0.3: 0.35, 0.4: 0.6, 0.45: 0.55, 0.5: 0.8, 0.55: 0.6, 0.6: 0.8, 0.65: 0.8, 0.7: 0.85, 0.75: 0.85 };
+// Whitby's faint steps of muted (labels, counts, fold arrows, rules), by their light value.
+// Dark mode takes Zed One Dark's color for each one's role: border.variant for rules, the
+// scrollbar thumb, editor.line_number for the faintest marks, icon.disabled and
+// text.placeholder for arrows, counts and quiet dots, border.focused for an open chip's
+// border, and text.muted and icon.muted for labels and secondary lines. Light keeps
+// Whitby's muted-at-N%.
+const ZED = {
+  0.15: "#363c46", 0.28: "#c8ccd44c", 0.3: "#4e5a5f", 0.4: "#878a98", 0.45: "#47679e", 0.5: "#878a98",
+  0.55: "#878a98", 0.6: "#a9afbc", 0.65: "#a9afbc", 0.7: "#a9afbc", 0.75: "#a9afbc", 0.8: "#878a98", 0.85: "#a9afbc",
+};
 
 // Theme tokens plus the few Whitby colors herdr has no name for.
 export function palette() {
   const t = theme();
   const dark = Boolean(settings()?.dark);
   const tone = (light, night) => (dark ? night : light);
-  // Muted at a faint step, as Whitby's muted-at-N% (see LIFT).
-  const fade = (a) => alpha(t.muted, dark ? (LIFT[a] ?? a) : a);
+  // Muted at a faint step, as Whitby's muted-at-N% (in dark, Zed One Dark's, see ZED).
+  const fade = (a) => (dark && ZED[a]) || alpha(t.muted, a);
   return {
     ...t,
     dark,
@@ -40,17 +46,17 @@ export function palette() {
     live: "#2e9f4b",
     failed: "#b54343",
     warn: tone("#b7791f", "#d49338"),
-    // Whitby's blue for marks and lines (selection bar, focus lines, unread dots); dark lifts
-    // it to 3:1 on its grounds. Links take a lighter blue in dark (Zed One Dark's accent),
-    // for 4.5:1; Whitby's solid blue stays the fill under white text.
-    blue: tone("#246cf4", "#4c8df6"),
+    // Whitby's blue for marks, lines and links; dark takes Zed One Dark's accent. Whitby's
+    // solid blue stays the fill under white text (buttons, your messages, the bell's badge).
+    blue: tone("#246cf4", "#74ade8"),
     link: tone("#246cf4", "#74ade8"),
-    codeBg: fade(dark ? 0.08 : 0.14),
+    // Inline code (paths): Zed One Dark's element.hover in dark.
+    codeBg: tone(alpha(t.muted, 0.14), "#363c46"),
     front: tone("#ffffff", "#2f343e"),
     body: tone("#f9f9fb", "#282c33"),
     rowHover: tone("#f9f9fb", "#2f343e"),
     field: tone("#f8f8fa", "#2f343e"),
-    placeholder: tone("#999ba3", "#9ca1ad"),
+    placeholder: tone("#999ba3", "#878a98"),
     footer: tone("#f8f8fa", "#3b414d"),
     footerBorder: tone("#d9d9e0", "#464b57"),
     footerMuted: tone("#60646c", "#a9afbc"),

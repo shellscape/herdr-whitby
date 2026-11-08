@@ -116,8 +116,8 @@ function agentIcon(p, on) {
   const own = GLYPHS[prog?.key] ?? GLYPHS[p?.app];
   const glyph = own ? svg(own).size(16)
     : prog?.icon ? (prog.tint ? svg(prog.icon).size(16) : image(prog.icon).w(16).h(16)) : null;
-  // At rest it's faint: 20% in light, 45% in dark (3:1 on its ground).
-  return h_flex().w(21).flex_none().justify_center().items_center().opacity(on ? 1 : palette().dark ? 0.45 : 0.2)
+  // At rest it's faint: 20% in light; in dark, about Zed One Dark's icon.disabled.
+  return h_flex().w(21).flex_none().justify_center().items_center().opacity(on ? 1 : palette().dark ? 0.75 : 0.2)
     .when(Boolean(glyph), (el) => el.child(glyph.flex_none()));
 }
 
