@@ -843,10 +843,17 @@ const FOLD = {
   agent: { icon: "sparkles", say: (n) => (n === 1 ? "Ran a subagent" : `Ran ${n} subagents`) },
   tool: { icon: "wrench", say: (n, calls) => (n === 1 ? `Used ${calls[0].name}` : `Used ${n} tools`) },
   thinking: { icon: "sparkles", say: () => "Reasoning" },
+  mcp: { icon: "wrench", say: (_n, calls) => `Called ${[...new Set(calls.map((c) => mcpServer(c.name)))].join(", ")}` },
 };
+
+// An MCP tool's server and tool ("mcp__linear__get_issue": linear, get_issue), as Claude
+// Code names them ("Called linear").
+const mcpServer = (name) => String(name).split("__")[1]?.replace(/^claude_ai_/, "") ?? name;
+const callName = (name) => (/^mcp__/.test(name) ? String(name).split("__").slice(1).join(" · ").replace(/^claude_ai_/, "") : name);
 
 function toolKind(it) {
   if (it.kind === "thinking") return "thinking";
+  if (/^mcp__/.test(it.name ?? "")) return "mcp";
   const n = (it.name ?? "").toLowerCase();
   if (/web|fetch|url|browse/.test(n)) return "web";
   if (/bash|shell|command|terminal|exec|^run/.test(n)) return "command";
@@ -904,7 +911,7 @@ function calls(v, t, address, group) {
     const out = (it.output ?? "").trim();
     const row = h_flex().id(`row-${key}`).px(8).py(4).gap(8).items_center().rounded(RADIUS)
       .when(Boolean(out), (el) => el.cursor_pointer().hover((s) => s.bg(t.rowHover)).on_click((_e, cx) => toggle(v, key, cx)))
-      .child(div().flex_none().text_size(12).font_weight(600).text_color(t.foreground).child(it.name))
+      .child(div().flex_none().text_size(12).font_weight(600).text_color(t.foreground).child(callName(it.name)))
       .child(div().flex_1().min_w(0).truncate().font_family(MONO).text_size(11.5).text_color(t.muted).child(tidy(it.detail)))
       .child(mark(t, it.status));
     return v.open.has(key) && out ? [row, output(t, out)] : [row];
@@ -914,6 +921,7 @@ function calls(v, t, address, group) {
 // The background work an agent has going (see chat-agents.js): its subagents first, then
 // its commands, monitors and loops, each kind by when it started.
 const WORK_ORDER = ["subagent", "command", "monitor", "loop"];
+const WORK_LABEL = { subagent: "Subagent", command: "Shell", monitor: "Monitor", loop: "Loop" };
 function liveWork(feed) {
   return [...(feed?.work?.values() ?? [])].sort((a, b) => WORK_ORDER.indexOf(a.type) - WORK_ORDER.indexOf(b.type) || (a.at ?? 0) - (b.at ?? 0));
 }
@@ -943,9 +951,10 @@ function workList(t, address, feed) {
         ? (w.next && w.next > now ? `next in ${elapsed(w.next - now)}` : "")
         : [w.at ? elapsed(now - w.at) : null, tokens(info?.tokens)].filter(Boolean).join(" · ");
       const mark = w.type === "monitor" ? icon("eye", 12) : w.type === "loop" ? icon("repeat", 12)
-        : svg(ICON_LOADER).size(11).flex_none().spin(900);
+        : w.type === "command" ? icon("square-terminal", 12) : svg(ICON_LOADER).size(11).flex_none().spin(900);
       return h_flex().id(`work-${w.id}`).h(26).px(10).gap(8).items_center().text_size(12)
         .child(div().flex_none().w(12).flex().justify_center().text_color(t.muted).child(mark))
+        .child(div().flex_none().w(58).text_size(11).text_color(t.muted).child(WORK_LABEL[w.type] ?? ""))
         .child(div().flex_none().max_w(280).truncate().font_weight(500).text_color(t.foreground).child(tidy(w.title) || w.type))
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).when(w.type === "command", (el) => el.font_family(MONO).text_size(11.5)).child(tidy(doing)))
         .child(div().flex_none().text_size(11.5).text_color(t.muted).child(facts));
@@ -1251,7 +1260,8 @@ export function chat(v) {
   // agent starts or its session loads, a line when it waits on its terminal (a question or
   // an approval), the dots while it answers. An agent at work before anyone has said
   // anything to it is still starting (Codex reports working while it sets up).
-  const asked = Boolean(going.length) || Boolean(feed?.items.some((it) => it.kind === "user"));
+  // Anything said or done (or earlier messages the chat didn't load) means it has started.
+  const asked = Boolean(going.length) || Boolean(feed?.cut) || Boolean(feed?.items.some((it) => it.kind === "user" || it.kind === "text" || it.kind === "tool"));
   const starting = !p.status || (p.status === "working" && !asked);
   // A question the agent shows in its terminal, read off its screen, shows at the foot of the
   // conversation, just above the reply box, to answer, whenever the chat shows (also on coming

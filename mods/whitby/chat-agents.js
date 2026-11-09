@@ -314,10 +314,14 @@ export const KINDS = {
               if (feed.startedAt && at && at < feed.startedAt) endTool(feed, b.tool_use_id, "stopped");
               else if (it) {
                 const type = r.status === "async_launched" ? "subagent" : /monitor/i.test(it.name) ? "monitor" : "command";
-                work(feed).set(it.id, { id: it.id, type, title: it.detail || it.name, at: it.at ?? at });
+                work(feed).set(it.id, { id: it.id, type, title: it.about || it.detail || it.name, detail: it.about ? it.detail : "", at: it.at ?? at });
+                (feed.tasks ??= new Map()).set(r.backgroundTaskId ?? r.agentId, it.id);
               }
               continue;
             }
+            // A stop call that worked: the task it stopped ends there (no notification follows).
+            const stopper = feed.tools.get(b.tool_use_id);
+            if (!b.is_error && stopper?.stops && feed.tasks?.has(stopper.stops)) endTool(feed, feed.tasks.get(stopper.stops), "stopped");
             endTool(feed, b.tool_use_id, b.is_error ? "failed" : "done", b.content);
           }
         }
@@ -325,8 +329,14 @@ export const KINDS = {
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && b.text?.trim()) push(feed, { kind: "text", text: b.text });
           else if (b.type === "thinking" && b.thinking?.trim()) push(feed, { kind: "thinking", text: b.thinking });
-          // When it started: a subagent's clock counts from it.
-          else if (b.type === "tool_use") tool(feed, b.id, b.name, detailOf(b.input)).at ??= at;
+          // When it started (a subagent's clock counts from it), what it says it does, and
+          // the background task a stop call names.
+          else if (b.type === "tool_use") {
+            const it = tool(feed, b.id, b.name, detailOf(b.input));
+            it.at ??= at;
+            it.about ??= typeof b.input?.description === "string" ? b.input.description : "";
+            if (/^(TaskStop|KillShell|KillBash)$/.test(b.name)) it.stops = b.input?.task_id ?? b.input?.shell_id;
+          }
         }
       }
     },
