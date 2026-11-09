@@ -430,6 +430,13 @@ function composer(v, address) {
   return st;
 }
 
+// Puts text in a reply box with the cursor after it, where typing goes on (set_value
+// alone leaves the cursor at the start).
+function setText(st, text) {
+  st.set_value(text);
+  st.set_selected_range({ start: text.length, end: text.length });
+}
+
 // A key typed in the chat while something else in it has the keyboard (a reply you clicked
 // to select from, say): it goes into the reply box, which takes the keyboard, as in Codex.
 function typeIntoComposer(v, address, e, cx) {
@@ -438,8 +445,8 @@ function typeIntoComposer(v, address, e, cx) {
   const st = v.inputs.get(address);
   if (!st) return;
   cx.stop_propagation();
-  st.set_value(st.value() + e.key_char);
   st.focus();
+  setText(st, st.value() + e.key_char);
 }
 
 const liveState = (address) => terminals().find((k) => k.address === address)?.status;
@@ -513,7 +520,7 @@ function flush(v, address, cx) {
       q.shift();
       if (r.code !== 0) {
         const st = v.inputs.get(address);
-        if (st && !st.value()) { st.set_value(m.text); v.typed.set(address, m.text); }
+        if (st && !st.value()) { setText(st, m.text); v.typed.set(address, m.text); }
         notify({ title: "Couldn't send the message", body: (r.stderr || r.stdout).trim().split("\n").pop() || `hc send exited ${r.code}`, level: "error" });
         continue;
       }
@@ -663,9 +670,9 @@ function moveSlash(v, address, key, cx) {
 function takeSlash(v, address, name, cx) {
   const st = v.inputs.get(address);
   if (!st || !name || name.endsWith("…")) return;
-  st.set_value(`${name} `);
-  v.typed.set(address, `${name} `);
   st.focus();
+  setText(st, `${name} `);
+  v.typed.set(address, `${name} `);
   syncSlash(v, address, cx);
   cx.notify();
 }
