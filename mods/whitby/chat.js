@@ -155,8 +155,11 @@ export function initChat(v, cx) {
   // one thing at a time (see lane).
   v.slash = new Map();
   v.lanes = new Map();
-  // The agents whose reply box has the keyboard.
+  // The agents whose reply box has the keyboard; and the chat's own hold on it: a click on
+  // the chat where nothing else takes the keyboard (empty space) gives it to the chat, whose
+  // keys then go to the reply box (see typeIntoComposer).
   v.typing = new Set();
+  v.chatFocus = cx.focus_handle();
   // While the menu shows, ↑, ↓ and Tab are its: bound where the reply box's field sits in it,
   // so they win over the field's own.
   try {
@@ -1286,6 +1289,7 @@ export function chat(v) {
   const body = [...said, ...empty, ...going, ...tail, ...(card ? [card] : [])];
   const working = workList(t, address, feed);
   return frame
+    .track_focus(v.chatFocus)
     .on_key_down((e, cx) => typeIntoComposer(v, address, e, cx))
     .child(viewport(v, t, address, body))
     .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)
