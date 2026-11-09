@@ -11,7 +11,7 @@
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView } from "gpui-base";
-import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand, openOverlay, closeOverlay } from "herdr";
+import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand } from "herdr";
 import { palette, alpha, icon, stateOf, reportOf, ASKING, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
@@ -180,7 +180,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
+  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -241,9 +241,9 @@ function tick(v, cx) {
       });
     }
   }
-  // While the shown agent's subagents work, their clocks count each second.
+  // While the shown agent has work going in the background, its clocks count each second.
   const second = Math.floor(now / 1000);
-  if (front && shown && second !== v.second && runningAgents(v.feeds.get(shown)).length) {
+  if (front && shown && second !== v.second && v.feeds.get(shown)?.work?.size) {
     v.second = second;
     cx.notify();
   }
@@ -352,10 +352,10 @@ function refresh(v, feed, address, cx) {
         feed.foundAt = Date.now();
       }
       if (feed.path && (await read(feed))) changed = true;
-      const working = runningAgents(feed);
+      const working = liveWork(feed).filter((w) => w.type === "subagent");
       const subagents = KINDS[feed.kind].subagents;
       if (subagents && feed.path && working.length && Date.now() - feed.agentsAt >= SUBAGENTS) {
-        const found = await subagents(feed.path, working.map((it) => it.id)).catch(() => null);
+        const found = await subagents(feed.path, working).catch(() => null);
         for (const [id, info] of found ?? []) feed.agents.set(id, info);
         feed.agentsAt = Date.now();
         changed = true;
@@ -371,7 +371,7 @@ function refresh(v, feed, address, cx) {
 async function read(feed) {
   const size = Number((await exec("stat", ["-f", "%z", feed.path]).catch(() => ({ stdout: "" }))).stdout.trim());
   if (!Number.isFinite(size) || size === feed.offset) return false;
-  if (size < feed.offset) Object.assign(feed, { offset: 0, items: [], tools: new Map() });
+  if (size < feed.offset) Object.assign(feed, { offset: 0, items: [], tools: new Map(), work: new Map() });
   let start = feed.offset;
   const first = start === 0 && size > TAIL;
   if (first) { start = size - TAIL; feed.cut = true; }
@@ -498,14 +498,29 @@ function stop(address, cx) {
 
 // "Send now" on a message the agent holds while it works: its own key for that (Claude Code's
 // ctrl+enter, Grok's Enter on an empty input), which takes what it holds in at once.
-function sendNow(v, address, kind, cx) {
-  const keys = KINDS[kind].sendNow;
-  if (!keys) return;
-  for (const m of v.pending.get(address) ?? []) m.nudged = true;
+// Grok takes what it holds in one message a press, first in first out: "Send now" on one
+// presses once for it and once for each ahead of it in Grok's queue (its "#n" there, read
+// off its screen; else its place among the chat's own). Claude Code takes them all at once.
+function sendNow(v, address, kind, m, cx) {
+  const k = KINDS[kind];
+  if (!k.sendNow) return;
+  const pending = v.pending.get(address) ?? [];
+  const upTo = k.sendNowEach ? pending.slice(0, pending.indexOf(m) + 1) : pending;
+  for (const x of upTo) x.nudged = true;
   cx.spawn(async (cx) => {
     await lane(v, address, async () => {
       await clearCommand(v, address);
-      await hc(["keys", address, ...keys]);
+      let presses = 1;
+      if (k.sendNowEach) {
+        const screen = (await hc(["read", address, "--lines", "40"]).catch(() => ({ stdout: "" }))).stdout ?? "";
+        const head = m.text.trim().split("\n")[0].slice(0, 30);
+        const row = [...screen.matchAll(/^\s*#(\d+)\s+(.*)$/gm)].find((r) => head && r[2].trim().startsWith(head));
+        presses = row ? Number(row[1]) : upTo.length;
+      }
+      for (let i = 0; i < presses; i++) {
+        if (i) await cx.sleep(300);
+        await hc(["keys", address, ...k.sendNow]);
+      }
     }).catch((err) => console.log(`whitby chat: ${address}: ${err}`));
     cx.notify();
   });
@@ -869,12 +884,14 @@ function calls(v, t, address, group) {
   }));
 }
 
-// The subagent calls still running in a feed.
-function runningAgents(feed) {
-  return (feed?.items ?? []).filter((it) => it.kind === "tool" && it.status === "running" && toolKind(it) === "agent");
+// The background work an agent has going (see chat-agents.js): its subagents first, then
+// its commands, monitors and loops, each kind by when it started.
+const WORK_ORDER = ["subagent", "command", "monitor", "loop"];
+function liveWork(feed) {
+  return [...(feed?.work?.values() ?? [])].sort((a, b) => WORK_ORDER.indexOf(a.type) - WORK_ORDER.indexOf(b.type) || (a.at ?? 0) - (b.at ?? 0));
 }
 
-// "3m 5s", as Claude Code counts a subagent's time.
+// "3m 5s", as the agents count their background work's time.
 function elapsed(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s`;
@@ -882,22 +899,28 @@ function elapsed(ms) {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
-// The shown agent's subagents at work, above the reply box, as Claude Code lists them under
-// its prompt: each one's task, what it's doing now, how long it has run, and the tokens in
-// its latest request.
-function subagentList(t, address, feed) {
-  const working = runningAgents(feed);
-  if (!working.length) return null;
+// The shown agent's background work, above the reply box, as its terminal lists it: each
+// subagent's task, what it's doing now, how long it has run and the tokens in its latest
+// request; each background command and monitor (Grok's watchers) and how long it has run;
+// each loop, how often it runs and when next.
+function workList(t, address, feed) {
+  const all = liveWork(feed);
+  if (!all.length) return null;
   const now = Date.now();
-  return v_flex().id(`subagents-${address}`).w_full().py(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
-    .children(working.map((it) => {
-      const info = feed.agents?.get(it.id);
-      const tokens = info?.tokens ? `↓ ${info.tokens >= 1000 ? `${(info.tokens / 1000).toFixed(1)}k` : info.tokens} tokens` : null;
-      const facts = [it.at ? elapsed(now - it.at) : null, tokens].filter(Boolean).join(" · ");
-      return h_flex().id(`subagent-${it.id}`).h(26).px(10).gap(8).items_center().text_size(12)
-        .child(svg(ICON_LOADER).size(11).flex_none().text_color(t.muted).spin(900))
-        .child(div().flex_none().max_w(240).truncate().font_weight(500).text_color(t.foreground).child(tidy(it.detail) || it.name))
-        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(info?.doing ?? "Starting"))
+  const tokens = (n) => (n ? `↓ ${n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n} tokens` : null);
+  return v_flex().id(`work-${address}`).w_full().py(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
+    .children(all.map((w) => {
+      const info = w.type === "subagent" ? feed.agents?.get(w.id) : null;
+      const doing = w.type === "subagent" ? info?.doing ?? "Starting" : w.type === "loop" ? w.every ?? "" : w.detail ?? "";
+      const facts = w.type === "loop"
+        ? (w.next && w.next > now ? `next in ${elapsed(w.next - now)}` : "")
+        : [w.at ? elapsed(now - w.at) : null, tokens(info?.tokens)].filter(Boolean).join(" · ");
+      const mark = w.type === "monitor" ? icon("eye", 12) : w.type === "loop" ? icon("repeat", 12)
+        : svg(ICON_LOADER).size(11).flex_none().spin(900);
+      return h_flex().id(`work-${w.id}`).h(26).px(10).gap(8).items_center().text_size(12)
+        .child(div().flex_none().w(12).flex().justify_center().text_color(t.muted).child(mark))
+        .child(div().flex_none().max_w(280).truncate().font_weight(500).text_color(t.foreground).child(tidy(w.title) || w.type))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).when(w.type === "command", (el) => el.font_family(MONO).text_size(11.5)).child(tidy(doing)))
         .child(div().flex_none().text_size(11.5).text_color(t.muted).child(facts));
     }));
 }
@@ -964,7 +987,7 @@ function outgoing(v, t, address, feed, ready, name, kind) {
   v.pending.set(address, sent);
   const queued = v.queue.get(address) ?? [];
   const held = (m) => !working ? [] : m.nudged ? ["Sending now…"]
-    : ["Queued", ...(KINDS[kind].sendNow ? [{ label: "Send now", run: (cx) => sendNow(v, address, kind, cx) }] : [])];
+    : ["Queued", ...(KINDS[kind].sendNow ? [{ label: "Send now", run: (cx) => sendNow(v, address, kind, m, cx) }] : [])];
   return [
     ...sent.map((m) => userMessage(t, m, true, ...held(m))),
     ...queued.map((m) => userMessage(t, m, true, ready ? "Sending…" : `Queued until ${name} is ready`)),
@@ -1031,39 +1054,6 @@ function screenCard(v, t, address, name, tail) {
       .child(div().ml(6).text_size(11.5).text_color(t.muted).child("or type your answer below")));
 }
 
-// Right-click in the chat: a menu to copy what you've selected. A left press anywhere
-// clears a selection before a menu item could read it, so it's read now, through the
-// clipboard (the text view's own Copy), and the clipboard is put back as it was.
-function openChatMenu(cx) {
-  const before = cx.read_from_clipboard();
-  try {
-    globalThis.window?.dispatch_action?.("input::Copy");
-  } catch (err) {
-    console.log(`whitby chat: copy: ${err}`);
-  }
-  cx.timer.after(40, (cx) => {
-    const after = cx.read_from_clipboard();
-    const text = after !== undefined && after !== before ? after : null;
-    if (text !== null && before !== undefined) cx.write_to_clipboard(before);
-    openOverlay({ mod: "whitby", kind: "popup", width: 160, height: 40, props: { part: "chat-menu", text } });
-  });
-}
-
-// The chat's right-click menu (see openChatMenu): Copy, when text was selected.
-export function chatMenu(p) {
-  const t = palette();
-  const text = p?.text ?? null;
-  return v_flex().size_full().p(4).text_size(13)
-    .child(h_flex().id("chat-menu-copy").h(30).px(10).items_center().rounded(RADIUS)
-      .text_color(text !== null ? t.foreground : t.fade(0.4))
-      .when(text !== null, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
-        cx.write_to_clipboard(text);
-        closeOverlay(p.overlay);
-      }))
-      .child(div().flex_1().child("Copy"))
-      .child(div().text_size(11.5).text_color(t.muted).child("⌘C")));
-}
-
 // The conversation scrolls in a viewport of its own, kept on the newest message: it rests
 // on its bottom edge and the wheel lifts it. Short chats sit at the top, as Grok Bot's do.
 // While you read back, new messages don't move what you're reading, and "Latest" brings you
@@ -1121,7 +1111,6 @@ function viewport(v, t, address, body) {
       v.viewH = size.height;
       cx.notify();
     })
-    .on_mouse_down("right", (_e, cx) => openChatMenu(cx))
     .on_scroll_wheel((e, cx) => {
       if (fits) return;
       const next = Math.max(0, Math.min(room, v.lift + e.delta.y));
@@ -1254,7 +1243,7 @@ export function chat(v) {
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
   const body = [...said, ...empty, ...going, ...tail];
-  const working = subagentList(t, address, feed);
+  const working = workList(t, address, feed);
   return frame
     .child(viewport(v, t, address, body))
     .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)

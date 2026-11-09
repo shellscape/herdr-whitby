@@ -84,6 +84,53 @@ function lastStep(text) {
   return null;
 }
 
+// What a Grok subagent did last, from the end of its session: its latest call (by its
+// description, else what it ran), or its thinking or its reply; and the tokens in play.
+function grokStep(text) {
+  const lines = text.split("\n");
+  const tokens = Number([...text.matchAll(/"_meta":\{"totalTokens":(\d+)/g)].pop()?.[1] ?? 0);
+  for (let i = lines.length - 1; i > 0; i--) {
+    const kind = lines[i].match(/"sessionUpdate":"(tool_call|agent_message_chunk|agent_thought_chunk)"/)?.[1];
+    if (!kind) continue;
+    if (kind === "agent_message_chunk") return { doing: "Writing its report", tokens };
+    if (kind === "agent_thought_chunk") return { doing: "Thinking", tokens };
+    let u;
+    try { u = JSON.parse(lines[i]).params?.update; } catch { continue; }
+    const label = u?._meta?.["x.ai/tool"]?.label || u?.title || "Tool";
+    const detail = detailOf(u?.rawInput);
+    return { doing: u?.rawInput?.description || (detail && !detail.startsWith("{") ? `${label} ${detail}` : label), tokens };
+  }
+  return null;
+}
+
+// What a Codex subagent did last, from the end of its rollout: its latest item, and the
+// tokens in its latest request.
+function codexStep(text) {
+  const lines = text.split("\n");
+  let tokens = 0;
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (!lines[i].includes('"token_count"') && !lines[i].includes('"item_completed"')) continue;
+    let p;
+    try { p = JSON.parse(lines[i]).payload; } catch { continue; }
+    if (p?.type === "token_count") {
+      const u = p.info?.last_token_usage ?? {};
+      tokens ||= (u.input_tokens ?? 0) + (u.output_tokens ?? 0);
+      continue;
+    }
+    const it = p?.item;
+    if (p?.type !== "item_completed" || !it) continue;
+    const file = (f) => String(f ?? "").split("/").pop();
+    const doing = it.type === "CommandExecution" ? shellCommand(it.command)
+      : it.type === "FileChange" ? `Editing ${Object.keys(it.changes ?? {}).map(file).join(", ")}`
+      : it.type === "McpToolCall" ? [it.server, it.tool].filter(Boolean).join(" ")
+      : it.type === "AgentMessage" ? "Writing its report"
+      : it.type === "Reasoning" ? "Thinking"
+      : null;
+    if (doing) return { doing, tokens };
+  }
+  return null;
+}
+
 // Codex runs commands as `/bin/zsh -lc '<command>'`: show the command.
 function shellCommand(c) {
   const s = Array.isArray(c) ? c[c.length - 1] ?? "" : c ?? "";
@@ -124,7 +171,13 @@ function tool(feed, id, name, detail, status = "running") {
   return item;
 }
 
+// The background work an agent has going (its "work"): subagents, background commands,
+// monitors and loops, by id ({ id, type, title, detail?, at, every?, next?, child? }), as its
+// terminal lists them. The chat shows them above the reply box.
+const work = (feed) => (feed.work ??= new Map());
+
 function endTool(feed, id, status, output) {
+  feed.work?.delete(id);
   const item = feed.tools.get(id);
   if (!item) return;
   item.status = status;
@@ -164,7 +217,7 @@ export function fromAgent(s) {
 }
 
 // The Grok updates the chat shows; the rest (commands, plans, memory) aren't parsed.
-const GROK_WANTED = /"sessionUpdate":"(user_message_chunk|agent_message_chunk|agent_thought_chunk|tool_call|tool_call_update|turn_completed|auto_compact_completed)"/;
+const GROK_WANTED = /"sessionUpdate":"(user_message_chunk|agent_message_chunk|agent_thought_chunk|tool_call|tool_call_update|turn_completed|auto_compact_completed|subagent_spawned|subagent_finished|task_backgrounded|task_completed|background_tasks|scheduled_task_created|scheduled_task_deleted)"/;
 
 export const KINDS = {
   claude: {
@@ -186,7 +239,8 @@ export const KINDS = {
     // The subagents of calls still running, by call id. Each one's transcript sits next to
     // the session's (<session>/subagents/agent-<id>.jsonl), its .meta.json naming the call
     // that started it; its end says what it's doing now.
-    async subagents(path, ids) {
+    async subagents(path, entries) {
+      const ids = entries.map((w) => w.id);
       const dir = path.replace(/\.jsonl$/, "/subagents");
       const list = 'for m in "$1"/*.meta.json; do [ -f "$m" ] && printf "%s\\t%s\\n" "$m" "$(tr -d "\\n" < "$m")"; done';
       const rows = (await exec("/bin/sh", ["-c", list, "sh", dir])).stdout.split("\n");
@@ -230,7 +284,12 @@ export const KINDS = {
             const r = e.toolUseResult;
             if (!b.is_error && (r?.status === "async_launched" || r?.backgroundTaskId)) {
               // One from an earlier process went with it, unless its notification follows.
+              const it = feed.tools.get(b.tool_use_id);
               if (feed.startedAt && at && at < feed.startedAt) endTool(feed, b.tool_use_id, "stopped");
+              else if (it) {
+                const type = r.status === "async_launched" ? "subagent" : /monitor/i.test(it.name) ? "monitor" : "command";
+                work(feed).set(it.id, { id: it.id, type, title: it.detail || it.name, at: it.at ?? at });
+              }
               continue;
             }
             endTool(feed, b.tool_use_id, b.is_error ? "failed" : "done", b.content);
@@ -253,8 +312,22 @@ export const KINDS = {
     glyph: "icons/grok.svg",
     tint: (t) => t.foreground,
     is: (p) => p?.app === "grok-build" || p?.program?.key === "grok",
-    // Enter on an empty input takes the messages it holds while at work in at once.
+    // Enter on an empty input takes the first message it holds while at work in at once;
+    // each press the next (sendNowEach).
     sendNow: ["enter"],
+    sendNowEach: true,
+    // Its subagents' own sessions sit beside its own (<folder>/<child session>/updates.jsonl).
+    async subagents(path, entries) {
+      const dir = path.replace(/\/[^/]+\/updates\.jsonl$/, "");
+      const out = new Map();
+      for (const w of entries) {
+        if (!w.child) continue;
+        const text = (await exec("tail", ["-c", "262144", `${dir}/${w.child}/updates.jsonl`]).catch(() => ({ stdout: "" }))).stdout;
+        const last = grokStep(text);
+        if (last) out.set(w.id, last);
+      }
+      return out;
+    },
     wanted: (line) => GROK_WANTED.test(line),
     // Grok lists its running sessions in ~/.grok/active_sessions.json, by process; each
     // session folder has updates.jsonl, the conversation as ACP session updates.
@@ -279,9 +352,61 @@ export const KINDS = {
           tool(feed, u.toolCallId, meta?.label || u.title, detailOf(u.rawInput) || (meta?.label ? u.title : ""));
           return;
         }
-        case "tool_call_update":
-          if (u.status === "completed" || u.status === "failed") endTool(feed, u.toolCallId, u.status === "failed" ? "failed" : "done", u.rawOutput ?? u.content);
+        case "tool_call_update": {
+          if (u.status !== "completed" && u.status !== "failed") return;
+          const out = u.rawOutput ?? u.content;
+          // A subagent started in the background, or a call sent there (a command, a
+          // monitor): it runs on until Grok says it finished (below).
+          const sub = textOf(out).match(/Subagent started in background\.\s*subagent_id:\s*(\S+)/);
+          if (sub) return void (feed.calls ??= new Map()).set(sub[1], u.toolCallId);
+          if (feed.held?.has(u.toolCallId)) return;
+          endTool(feed, u.toolCallId, u.status === "failed" ? "failed" : "done", out);
           return;
+        }
+        case "task_backgrounded": {
+          (feed.held ??= new Set()).add(u.tool_call_id);
+          (feed.calls ??= new Map()).set(u.task_id, u.tool_call_id);
+          const it = feed.tools.get(u.tool_call_id);
+          if (it) it.status = "running";
+          return;
+        }
+        case "task_completed": {
+          const k = u.task_snapshot ?? {};
+          const call = feed.calls?.get(k.task_id);
+          if (call) {
+            feed.held?.delete(call);
+            endTool(feed, call, k.status === "failed" || (k.exit_code != null && k.exit_code !== 0) ? "failed" : "done", k.output);
+          }
+          work(feed).delete(k.task_id);
+          return;
+        }
+        // Grok's whole list of its background commands and monitors, each time it changes.
+        case "background_tasks":
+          for (const [id, w] of work(feed)) if (w.type === "command" || w.type === "monitor") work(feed).delete(id);
+          for (const k of u.tasks ?? []) {
+            if (k.status !== "running") continue;
+            const monitor = k.kind === "monitor";
+            work(feed).set(k.task_id, {
+              id: k.task_id, type: monitor ? "monitor" : "command",
+              title: k.description || String(k.display_command ?? k.command ?? "").replace(/^\[\w+\]\s*/, ""),
+              detail: monitor ? "" : String(k.command ?? "").split("\n")[0], at: Date.parse(k.started_at) || at,
+            });
+          }
+          return;
+        case "subagent_spawned":
+          work(feed).set(u.subagent_id, { id: u.subagent_id, type: "subagent", title: u.description || u.subagent_type || "Subagent", at, child: u.child_session_id });
+          return;
+        case "subagent_finished": {
+          work(feed).delete(u.subagent_id);
+          const call = feed.calls?.get(u.subagent_id);
+          if (call) endTool(feed, call, u.status === "completed" ? "done" : u.status === "cancelled" ? "stopped" : "failed", u.output);
+          return;
+        }
+        // A loop: a prompt Grok runs again on a schedule, until it's deleted.
+        case "scheduled_task_created":
+          work(feed).set(u.task_id, { id: u.task_id, type: "loop", title: String(u.prompt ?? "").split("\n")[0], every: u.human_schedule, next: Date.parse(u.next_fire_at) || null, at });
+          return;
+        case "scheduled_task_deleted": work(feed).delete(u.task_id); return;
         case "turn_completed": {
           const last = feed.items[feed.items.length - 1];
           if (last) last.closed = true;
@@ -325,6 +450,17 @@ export const KINDS = {
     },
     session: (path) => path?.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1],
     resume: (id) => ["codex", ...(id ? ["resume", id] : [])],
+    // Each subagent is a session of its own: rollout-<time>-<its thread>.jsonl.
+    async subagents(_path, entries) {
+      const out = new Map();
+      for (const w of entries) {
+        w.file ??= await newest('"$HOME"/.codex/sessions/*/*/*/rollout-*-"$1".jsonl', w.id);
+        if (!w.file) continue;
+        const last = codexStep((await exec("tail", ["-c", "262144", w.file]).catch(() => ({ stdout: "" }))).stdout);
+        if (last) out.set(w.id, last);
+      }
+      return out;
+    },
     parse(e, feed) {
       const p = e.payload;
       if (e.type !== "event_msg" || !p) return;
@@ -351,6 +487,18 @@ export const KINDS = {
           endTool(feed, it.id, it.status === "failed" || it.error ? "failed" : "done", it.result?.content ?? it.error?.message);
           return;
         case "ContextCompaction": push(feed, { kind: "note", text: "Context compacted" }); return;
+        // A subagent: started, given more to do (interacted), or done with it (completed).
+        case "SubAgentActivity": {
+          const id = it.agent_thread_id;
+          if (!id) return;
+          const name = String(it.agent_path ?? "").split("/").pop().replace(/_/g, " ") || "Subagent";
+          if (it.kind === "completed") return void endTool(feed, id, "done");
+          const item = tool(feed, id, "Subagent", name);
+          item.at ??= stamp(e.timestamp);
+          if (!work(feed).has(id)) work(feed).set(id, { id, type: "subagent", title: name, at: stamp(e.timestamp) });
+          item.status = "running";
+          return;
+        }
       }
     },
   },

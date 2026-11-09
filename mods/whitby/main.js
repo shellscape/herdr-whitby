@@ -12,7 +12,7 @@ import { footer } from "./footer.js";
 import { initHome, home } from "./home.js";
 import { sampleStats } from "./kit.js";
 import { initUsage, usageCard } from "./usage.js";
-import { initChat, chat, chatMenu } from "./chat.js";
+import { initChat, chat } from "./chat.js";
 
 export default class Whitby extends View {
   init(_props, cx) {
@@ -34,8 +34,6 @@ export default class Whitby extends View {
       case "chat": return chat(this);
       // The usage card, in an overlay the footer opens (see usage.js).
       case "usage-card": return usageCard(props()?.card);
-      // The chat's right-click menu, in an overlay the chat opens (see chat.js).
-      case "chat-menu": return chatMenu(props());
       default: return div();
     }
   }
