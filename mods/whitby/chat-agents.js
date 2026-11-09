@@ -214,8 +214,12 @@ function endTool(feed, id, status, output) {
 // What Claude Code files under a user turn that the person didn't type.
 const CLAUDE_HIDDEN = /^<(local-command-[a-z]+|system-reminder|bash-stdout|bash-stderr|command-message|command-args)>/;
 
+// Text you pasted, as Claude Code files it: wrapped in <pasted_content> (with an id or
+// without). The chat shows what you pasted, not the wrapper.
+const unpaste = (text) => text.replace(/<pasted_content(?: id="[^"]*")?>\n?/g, "").replace(/\n?<\/pasted_content(?: id="[^"]*")?>/g, "");
+
 function claudeUser(feed, text, at) {
-  const s = text.trim();
+  const s = unpaste(text).trim();
   if (!s || CLAUDE_HIDDEN.test(s)) return;
   const command = s.match(/^<command-name>([^<]*)<\/command-name>/);
   if (command) {

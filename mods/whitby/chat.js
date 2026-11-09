@@ -1018,8 +1018,11 @@ function messages(v, t, address, feed) {
 function outgoing(v, t, address, feed, ready, name, kind) {
   // One the agent holds while it works stays until it takes it in, however long that is.
   const working = liveState(address) === "working";
+  // It has landed once the session has a message from you with its words in it (spacing
+  // aside, wherever the agent put them).
+  const words = (x) => x.replace(/\s+/g, " ").trim();
   const sent = (v.pending.get(address) ?? []).filter((m) => (working || Date.now() - m.at < 60_000)
-    && !feed?.items.some((it) => it.kind === "user" && it.at >= m.at - 5000 && it.text.trim().startsWith(m.text.slice(0, 40))));
+    && !feed?.items.some((it) => it.kind === "user" && it.at >= m.at - 5000 && words(it.text).includes(words(m.text).slice(0, 40))));
   v.pending.set(address, sent);
   const queued = v.queue.get(address) ?? [];
   const held = (m) => !working ? [] : m.nudged ? ["Sending now…"]
