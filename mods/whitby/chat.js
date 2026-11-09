@@ -11,11 +11,11 @@
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView } from "gpui-base";
-import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand } from "herdr";
+import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand, openOverlay, closeOverlay } from "herdr";
 import { palette, alpha, icon, stateOf, reportOf, ASKING, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
-import { readDialog, answerKeys, screenTail, LINKS } from "./chat-screen.js";
+import { readDialog, answerKeys, screenTail, readPalette, LINKS } from "./chat-screen.js";
 
 const MONO = "Geist Mono";
 // Whitby's corners: 4px on bubbles, cards and controls (only status dots are round).
@@ -32,6 +32,8 @@ const TAIL = 1_500_000, KEEP = 400;
 const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
 // How often the shown agent's subagents at work are read (see KINDS.claude.subagents).
 const SUBAGENTS = 2000;
+// How often the agent's slash-command menu is read again while it shows (see syncSlash).
+const SLASH_READ = 700;
 // How long after a chip opens or closes the chat holds what's on screen (see viewport).
 const HOLD = 400;
 // How often the screen of an agent that's starting or asking something is read, so its
@@ -149,6 +151,17 @@ export function initChat(v, cx) {
   v.lift = 0;
   v.viewH = 0;
   v.contentH = 0;
+  // The agent's slash-command menu, by agent (see syncSlash), and each agent's input taking
+  // one thing at a time (see lane).
+  v.slash = new Map();
+  v.lanes = new Map();
+  // While the menu shows, ↑, ↓ and Tab are its: bound where the reply box's field sits in it,
+  // so they win over the field's own.
+  try {
+    cx.bind_keys(["up", "down", "tab"].map((key) => ({ keystroke: key, action: `whitby_slash_${key}`, context: "WhitbySlash > Input" })));
+  } catch (err) {
+    console.log(`whitby chat: slash keys: ${err}`);
+  }
   cx.timer.every(TICK, (cx) => tick(v, cx));
   tick(v, cx);
 }
@@ -207,6 +220,26 @@ function tick(v, cx) {
     // Behind other windows, only a first load: the rest waits until you come back.
     if (!front && feed.loaded) continue;
     if (!feed.reading && now - feed.readAt >= (a.address === shown ? SHOWN : BACKGROUND)) refresh(v, feed, a.address, cx);
+  }
+  // A chat coming into view takes the keyboard in its reply box (again on the next tick, in
+  // case its box wasn't drawn yet).
+  if (shown !== v.focusFor || v.focusAgain) {
+    v.focusAgain = shown !== v.focusFor;
+    v.focusFor = shown;
+    if (shown) v.inputs.get(shown)?.focus();
+  }
+  if (shown) {
+    syncSlash(v, shown, cx);
+    const s = v.slash.get(shown);
+    if (s?.typed && !s.busy && now - s.readAt >= SLASH_READ) {
+      s.busy = true;
+      cx.spawn(async (cx) => {
+        const before = JSON.stringify(s.rows);
+        s.rows = await readSlash(shown, cx).catch(() => s.rows);
+        Object.assign(s, { busy: false, readAt: Date.now() });
+        if (JSON.stringify(s.rows) !== before) cx.notify();
+      });
+    }
   }
   // While the shown agent's subagents work, their clocks count each second.
   const second = Math.floor(now / 1000);
@@ -376,11 +409,13 @@ function composer(v, address) {
   st.on("change", (_e, cx) => {
     const before = v.typed.get(address) ?? "";
     v.typed.set(address, st.value());
-    if (Boolean(before.trim()) !== Boolean(st.value().trim())) cx.notify();
+    syncSlash(v, address, cx);
+    if (Boolean(before.trim()) !== Boolean(st.value().trim()) || Boolean(commandPart(before)) !== Boolean(commandPart(st.value()))) cx.notify();
   });
   st.on("submit", (e, cx) => {
     if (e.shift) return;
-    send(v, address, st.value().replace(/\n$/, ""), cx);
+    const text = st.value().replace(/\n$/, "");
+    if (!runSlash(v, address, text, cx)) send(v, address, text, cx);
   });
   v.inputs.set(address, st);
   return st;
@@ -436,8 +471,10 @@ function flush(v, address, cx) {
       const state = liveState(address);
       if (!READY.has(state)) break;
       const m = q[0];
-      const r = await hc(["send", ...(state === "done" ? [] : ["--if", state]), address, m.text])
-        .catch((err) => ({ code: 1, stderr: String(err), stdout: "" }));
+      const r = await lane(v, address, async () => {
+        await clearCommand(v, address);
+        return hc(["send", ...(state === "done" ? [] : ["--if", state]), address, m.text]);
+      }).catch((err) => ({ code: 1, stderr: String(err), stdout: "" }));
       if (r.code !== 0 && ++m.tries < 3) break;
       q.shift();
       if (r.code !== 0) {
@@ -457,6 +494,156 @@ function flush(v, address, cx) {
 
 function stop(address, cx) {
   cx.spawn(async () => { await hc(["interrupt", address]).catch(() => {}); });
+}
+
+// "Send now" on a message the agent holds while it works: its own key for that (Claude Code's
+// ctrl+enter, Grok's Enter on an empty input), which takes what it holds in at once.
+function sendNow(v, address, kind, cx) {
+  const keys = KINDS[kind].sendNow;
+  if (!keys) return;
+  for (const m of v.pending.get(address) ?? []) m.nudged = true;
+  cx.spawn(async (cx) => {
+    await lane(v, address, async () => {
+      await clearCommand(v, address);
+      await hc(["keys", address, ...keys]);
+    }).catch((err) => console.log(`whitby chat: ${address}: ${err}`));
+    cx.notify();
+  });
+  cx.notify();
+}
+
+// The agent's input takes one thing at a time: a command's keys, its menu's moves, a message.
+function lane(v, address, job) {
+  const next = (v.lanes.get(address) ?? Promise.resolve()).then(job);
+  v.lanes.set(address, next.catch(() => {}));
+  return next;
+}
+
+// ---------------------------------------------------------------------------------------
+// The agent's slash-command menu. While what you type is a command (a "/" and a name, no
+// space yet) and the agent is at its prompt or at work, it goes into the agent's input as
+// well, and the menu the agent draws there is read off its screen (readPalette): so the chat
+// lists and matches commands, skills and all, as the agent's terminal does. ↑ and ↓ move the
+// agent's pick, Tab or a click takes a name into the reply box, and Enter runs the pick there,
+// as Enter does in the terminal. hc types letters, digits, "-", "." and "/": a command with
+// another character goes in up to it, and Enter then sends what you typed, whole. The agent's
+// input is cleared (ctrl+u) when what you type stops being a command, and before a message.
+
+// What of the reply box goes into the agent's input: a command being typed, up to a
+// character hc can't type. Enter's newline, put in before it submits, doesn't count.
+function commandPart(text) {
+  const t = (text ?? "").replace(/\n$/, "");
+  return /^\/\S*$/.test(t) ? t.match(/^[A-Za-z0-9\-./]*/)[0] : "";
+}
+
+function slashOf(v, address) {
+  let s = v.slash.get(address);
+  if (!s) v.slash.set(address, (s = { typed: "", rows: [], busy: false, readAt: 0 }));
+  return s;
+}
+
+// Whether the agent's input is the chat's to type into: the agent at its prompt or at work
+// (not still starting), nothing asked.
+function slashReady(v, address) {
+  const state = liveState(address);
+  if (!READY.has(state) || v.freeText.has(address) || v.screens.get(address)?.dialog) return false;
+  return state !== "working" || Boolean(v.feeds.get(address)?.items.some((it) => it.kind === "user"));
+}
+
+// Clears a command the chat typed into the agent's input. Run in the agent's lane.
+async function clearCommand(v, address) {
+  const s = v.slash.get(address);
+  if (!s?.typed) return;
+  await hc(["keys", address, "ctrl+u"]).catch(() => {});
+  Object.assign(s, { typed: "", rows: [] });
+}
+
+async function readSlash(address, cx) {
+  await cx.sleep(120);
+  const r = await hc(["read", address, "--lines", "40"]);
+  return r.code === 0 ? readPalette(r.stdout) : [];
+}
+
+// Brings the agent's input to the command being typed, then reads its menu; and again if
+// what you typed moved on meanwhile.
+function syncSlash(v, address, cx) {
+  const s = slashOf(v, address);
+  if (s.busy || !slashReady(v, address)) return;
+  const want = commandPart(v.typed.get(address));
+  if (want === s.typed) return;
+  s.busy = true;
+  cx.spawn(async (cx) => {
+    try {
+      await lane(v, address, async () => {
+        s.typed = want;
+        await hc(["keys", address, "ctrl+u", ...want]);
+      });
+      s.rows = want ? await readSlash(address, cx) : [];
+    } catch (err) {
+      console.log(`whitby chat: ${address}: ${err}`);
+    }
+    Object.assign(s, { busy: false, readAt: Date.now() });
+    cx.notify();
+    syncSlash(v, address, cx);
+  });
+}
+
+// Whether the menu shows: the agent's, for what's in the reply box now.
+function slashShown(v, address) {
+  const s = v.slash.get(address);
+  return Boolean(s?.rows.length && s.typed && s.typed === commandPart(v.typed.get(address)) && slashReady(v, address));
+}
+
+// ↑ or ↓: moves the agent's pick, and reads its menu again.
+function moveSlash(v, address, key, cx) {
+  if (!slashShown(v, address)) return;
+  const s = v.slash.get(address);
+  cx.spawn(async (cx) => {
+    try {
+      await lane(v, address, () => hc(["keys", address, key]));
+      s.rows = await readSlash(address, cx);
+      s.readAt = Date.now();
+    } catch {}
+    cx.notify();
+  });
+}
+
+// Tab or a click: the name into the reply box, a space after it for what follows.
+function takeSlash(v, address, name, cx) {
+  const st = v.inputs.get(address);
+  if (!st || !name || name.endsWith("…")) return;
+  st.set_value(`${name} `);
+  v.typed.set(address, `${name} `);
+  st.focus();
+  syncSlash(v, address, cx);
+  cx.notify();
+}
+
+// Enter with the menu showing what you typed: runs the agent's pick, as Enter in its terminal.
+function runSlash(v, address, text, cx) {
+  if (!slashShown(v, address) || v.slash.get(address).typed !== text.trim()) return false;
+  const s = v.slash.get(address);
+  Object.assign(s, { typed: "", rows: [] });
+  v.inputs.get(address)?.set_value("");
+  v.typed.set(address, "");
+  v.lift = 0;
+  cx.spawn(async (cx) => {
+    await lane(v, address, () => hc(["keys", address, "enter"])).catch(() => {});
+    cx.notify();
+  });
+  cx.notify();
+  return true;
+}
+
+// The menu, above the reply box: each command and what it does, the agent's pick marked.
+function slashMenu(v, t, address) {
+  if (!slashShown(v, address)) return null;
+  return v_flex().id(`slash-menu-${address}`).w_full().p(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
+    .children(v.slash.get(address).rows.slice(0, 8).map((r, i) => h_flex().id(`slash-${address}-${i}`).h(28).px(8).gap(12).items_center().rounded(RADIUS)
+      .when(r.picked, (el) => el.bg(t.selected))
+      .when(!r.cut, (el) => el.cursor_pointer().hover((st) => st.bg(r.picked ? t.selected : t.hover)).on_click((_e, cx) => takeSlash(v, address, r.name, cx)))
+      .child(div().flex_none().max_w(280).truncate().font_family(MONO).text_size(12.5).text_color(t.foreground).child(r.name))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(r.about))));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -523,18 +710,41 @@ function inline(t, id, text, o = {}) {
   }));
 }
 
-// Your messages: Whitby blue, on the right. Faded while on their way, with a line under
-// one that's queued.
-function userMessage(t, it, faded, caption) {
-  // Capped at 80% of the column, so long messages wrap rather than run off the left. Links
-  // in it are white and underlined, paths on a lighter blue.
-  const style = { link: t.solid_foreground, underline: true, code: alpha("#ffffff", 0.2), codeSize: 12.5, lineHeight: 20 };
+// Your messages: Whitby blue, on the right, selectable as the agent's replies are. Faded
+// while on their way, with a line under one that's queued (and what you can do about it).
+function userMessage(t, it, faded, caption, action) {
+  // Capped at 80% of the column, so long messages wrap rather than run off the left. A text
+  // view in white on the blue takes its links and code from the white.
+  const key = `user-md-${it.at ?? 0}-${it.text.length}`;
   return v_flex().w_full().items_end().gap(4)
-    .child(div().max_w("80%").min_w(0).px(14).py(9).rounded(RADIUS).bg(t.solid).text_color(t.solid_foreground).text_size(13.5).line_height("20px")
-      .opacity(faded ? 0.55 : 1).child(inline(t, `user-${it.at ?? 0}-${it.text.length}`, fromAgent(it.text.trim()), style)))
+    .child(div().max_w("80%").min_w(0).px(14).py(9).rounded(RADIUS).bg(t.solid).opacity(faded ? 0.55 : 1)
+      .child(TextView.markdown(key, asMarkdown(fromAgent(it.text.trim()))).selectable(true)
+        .text_color(t.solid_foreground).text_size(13.5).line_height("20px")))
     .when(Boolean(caption), (el) => el.child(h_flex().gap(4).items_center().text_size(10.5).text_color(t.muted)
       .child(icon("clock", 11))
-      .child(div().child(caption))));
+      .child(div().child(caption))
+      .when(Boolean(action), (row) => row
+        .child(div().child("·"))
+        .child(div().id(`${key}-act`).text_color(t.link).cursor_pointer().hover((s) => s.underline())
+          .on_click((_e, cx) => action.run(cx)).child(action.label)))));
+}
+
+// Your words as markdown that shows them as written: markdown's marks escaped, a line's
+// indent kept, web addresses as links and paths as inline code (as inline() picks them out),
+// and each line break kept.
+function asMarkdown(text) {
+  const plain = (s) => s.replace(/[\\`*_{}[\]()#+\-.!|<>~]/g, "\\$&");
+  return text.split("\n").map((line) => {
+    const indent = line.match(/^ */)[0];
+    return "\u00a0".repeat(indent.length) + line.slice(indent.length).split(/(\s+)/).map((w) => {
+      if (!w || /^\s+$/.test(w)) return w;
+      const trail = w.match(TRAIL)?.[0] ?? "";
+      const core = trail ? w.slice(0, -trail.length) : w;
+      if (URL.test(core)) return `<${core}>${plain(trail)}`;
+      if (PATH.test(core) && !core.includes("`")) return `\`${core}\`${plain(trail)}`;
+      return plain(w);
+    }).join("");
+  }).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
 }
 
 // The agent's replies: markdown in a grey bubble, on the left.
@@ -746,13 +956,17 @@ function messages(v, t, address, feed) {
 }
 
 // Your messages on their way: sent ones the session doesn't have yet, then queued ones.
-function outgoing(v, t, address, feed, ready, name) {
-  const sent = (v.pending.get(address) ?? []).filter((m) => Date.now() - m.at < 60_000
+function outgoing(v, t, address, feed, ready, name, kind) {
+  // One the agent holds while it works stays until it takes it in, however long that is.
+  const working = liveState(address) === "working";
+  const sent = (v.pending.get(address) ?? []).filter((m) => (working || Date.now() - m.at < 60_000)
     && !feed?.items.some((it) => it.kind === "user" && it.at >= m.at - 5000 && it.text.trim().startsWith(m.text.slice(0, 40))));
   v.pending.set(address, sent);
   const queued = v.queue.get(address) ?? [];
+  const held = (m) => !working ? [] : m.nudged ? ["Sending now…"]
+    : ["Queued", ...(KINDS[kind].sendNow ? [{ label: "Send now", run: (cx) => sendNow(v, address, kind, cx) }] : [])];
   return [
-    ...sent.map((m) => userMessage(t, m, true)),
+    ...sent.map((m) => userMessage(t, m, true, ...held(m))),
     ...queued.map((m) => userMessage(t, m, true, ready ? "Sending…" : `Queued until ${name} is ready`)),
   ];
 }
@@ -817,6 +1031,39 @@ function screenCard(v, t, address, name, tail) {
       .child(div().ml(6).text_size(11.5).text_color(t.muted).child("or type your answer below")));
 }
 
+// Right-click in the chat: a menu to copy what you've selected. A left press anywhere
+// clears a selection before a menu item could read it, so it's read now, through the
+// clipboard (the text view's own Copy), and the clipboard is put back as it was.
+function openChatMenu(cx) {
+  const before = cx.read_from_clipboard();
+  try {
+    globalThis.window?.dispatch_action?.("input::Copy");
+  } catch (err) {
+    console.log(`whitby chat: copy: ${err}`);
+  }
+  cx.timer.after(40, (cx) => {
+    const after = cx.read_from_clipboard();
+    const text = after !== undefined && after !== before ? after : null;
+    if (text !== null && before !== undefined) cx.write_to_clipboard(before);
+    openOverlay({ mod: "whitby", kind: "popup", width: 160, height: 40, props: { part: "chat-menu", text } });
+  });
+}
+
+// The chat's right-click menu (see openChatMenu): Copy, when text was selected.
+export function chatMenu(p) {
+  const t = palette();
+  const text = p?.text ?? null;
+  return v_flex().size_full().p(4).text_size(13)
+    .child(h_flex().id("chat-menu-copy").h(30).px(10).items_center().rounded(RADIUS)
+      .text_color(text !== null ? t.foreground : t.fade(0.4))
+      .when(text !== null, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
+        cx.write_to_clipboard(text);
+        closeOverlay(p.overlay);
+      }))
+      .child(div().flex_1().child("Copy"))
+      .child(div().text_size(11.5).text_color(t.muted).child("⌘C")));
+}
+
 // The conversation scrolls in a viewport of its own, kept on the newest message: it rests
 // on its bottom edge and the wheel lifts it. Short chats sit at the top, as Grok Bot's do.
 // While you read back, new messages don't move what you're reading, and "Latest" brings you
@@ -874,6 +1121,7 @@ function viewport(v, t, address, body) {
       v.viewH = size.height;
       cx.notify();
     })
+    .on_mouse_down("right", (_e, cx) => openChatMenu(cx))
     .on_scroll_wheel((e, cx) => {
       if (fits) return;
       const next = Math.max(0, Math.min(room, v.lift + e.delta.y));
@@ -960,13 +1208,17 @@ function composerArea(v, t, target, answering) {
       // "Message Claude" is drawn underneath in Whitby's placeholder grey, seen through the
       // textarea while it's empty.
       .child(div().relative().flex_1().min_w(0)
+        .when(slashShown(v, address), (el) => el.key_context("WhitbySlash"))
+        .on_action("whitby_slash_up", (_e, cx) => moveSlash(v, address, "up", cx))
+        .on_action("whitby_slash_down", (_e, cx) => moveSlash(v, address, "down", cx))
+        .on_action("whitby_slash_tab", (_e, cx) => takeSlash(v, address, v.slash.get(address)?.rows.find((r) => r.picked)?.name, cx))
         .when(!(v.typed.get(address) ?? ""), (el) => el.child(div().absolute().top(0).left(0).right(0).py(5).truncate()
           .text_size(13.5).text_color(t.placeholder).child(answeringByText(v, address) ? "Type your answer" : `Message ${KINDS[target.kind].name}`)))
         .child(st ? Textarea.new(st).w_full().py(5).bg(alpha(t.front, 0)).text_size(13.5).text_color(t.foreground) : div().h(30)))
       .child(answering && !ready ? stopButton(t, address) : sendButton(v, t, address, ready)))
     .child(h_flex().w_full().max_w(COLUMN).mt(6).px(14).gap(12).items_center().justify_between().text_size(10.5).text_color(t.fade(0.85))
       .child(folderChip(v, t, target))
-      .child(div().flex_none().child("⏎ send  ·  ⇧⏎ new line")));
+      .child(div().flex_none().child(slashShown(v, address) ? "↑↓ pick  ·  ⇥ complete  ·  ⏎ run" : "⏎ send  ·  ⇧⏎ new line")));
 }
 
 export function chat(v) {
@@ -978,7 +1230,7 @@ export function chat(v) {
   const feed = v.feeds.get(address) ?? carried(v, target);
   const name = KINDS[target.kind].name;
   const said = feed?.items.length ? messages(v, t, address, feed) : [];
-  const going = outgoing(v, t, address, feed, target.ready, name);
+  const going = outgoing(v, t, address, feed, target.ready, name, target.kind);
   // The chat stays put whatever the agent does. Below the conversation: a spinner while the
   // agent starts or its session loads, a line when it waits on its terminal (a question or
   // an approval), the dots while it answers. An agent at work before anyone has said
@@ -1009,5 +1261,7 @@ export function chat(v) {
       .child(div().w_full().max_w(COLUMN).child(working))))
     .when(Boolean(card), (el) => el.child(v_flex().id(`card-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(card))))
+    .when(slashShown(v, address), (el) => el.child(v_flex().id(`slash-${address}`).flex_none().items_center().px(24).pt(6)
+      .child(div().w_full().max_w(COLUMN).child(slashMenu(v, t, address)))))
     .child(composerArea(v, t, target, p.status === "working" && !starting));
 }

@@ -116,3 +116,35 @@ export function screenTail(screen, count = 12) {
   const lines = (screen ?? "").split("\n").filter((l) => !l.startsWith("[hc]")).map(clean).filter((l) => l.trim() && !RULE.test(l));
   return lines.slice(-count).join("\n");
 }
+
+// The agent's slash-command menu, read off its screen while you type a command: its rows
+// (name, what it does, whether it's the picked one), as Claude Code, Codex and Grok draw them
+// just above their input (Claude Code and Grok across a rule, Grok's input in a box, Codex's
+// with blank lines between). A row is a name, an alias in brackets (Claude Code's) and what
+// it does, two spaces on (one after a name cut short with "…", Grok's); what it does can run
+// on in lines indented under it. Empty when no menu shows.
+const PROMPT = /^\s*(?:│\s*)?[❯»]\s+\/\S*$/;
+const EDGE = /^[\s─╭╮╰╯│]*$/;
+const ROW = /^\s*([❯›])?\s*(\/\S*…(?=\s)|\/\S+(?:\s\([^)]*\))?(?=\s{2}))\s+(\S.*)$/;
+const MORE = /^\s{8,}\S/;
+
+export function readPalette(screen) {
+  const lines = (screen ?? "").split("\n").filter((l) => !l.startsWith("[hc]")).map((l) => l.replace(/[\s█▐▌│]+$/u, ""));
+  let i = lines.length - 1;
+  while (i >= 0 && !PROMPT.test(lines[i])) i--;
+  if (i < 0) return [];
+  i--;
+  while (i >= 0 && EDGE.test(lines[i])) i--;
+  const end = i;
+  while (i >= 0 && (ROW.test(lines[i]) || MORE.test(lines[i]) || (!lines[i].trim() && i > 0 && ROW.test(lines[i - 1])))) i--;
+  const rows = [];
+  for (const line of lines.slice(i + 1, end + 1)) {
+    if (!line.trim()) continue;
+    const row = line.match(ROW);
+    if (row) {
+      const name = row[2].split(" ")[0];
+      rows.push({ name, about: row[3].trim(), picked: Boolean(row[1]), cut: name.endsWith("…") });
+    } else if (rows.length) rows[rows.length - 1].about += ` ${line.trim()}`;
+  }
+  return rows;
+}

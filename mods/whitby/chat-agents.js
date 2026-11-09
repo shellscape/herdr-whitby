@@ -173,7 +173,9 @@ export const KINDS = {
     glyph: ICON("clawd"),
     tint: () => "#d97757",
     is: (p) => p?.program?.key === "claude" || p?.app === "claude-code",
-    wanted: (line) => line.includes('"type":"user"') || line.includes('"type":"assistant"') || line.includes("<task-notification>"),
+    wanted: (line) => line.includes('"type":"user"') || line.includes('"type":"assistant"') || line.includes('"type":"queued_command"'),
+    // What takes the messages it holds while at work in at once: Claude Code's "send now".
+    sendNow: ["ctrl+enter"],
     // The session's transcript: ~/.claude/projects/<folder, non-alphanumerics as "-">/<session>.jsonl.
     async find(info) {
       return newest('"$HOME"/.claude/projects/*/"$1".jsonl', (await claudeSession(info))?.sessionId);
@@ -208,11 +210,14 @@ export const KINDS = {
       if (e.isSidechain) return;
       const at = stamp(e.timestamp);
       const content = e.message?.content;
-      // A background task's notification that came in mid-turn: Claude Code files it as a
-      // queued command, not a user turn.
+      // What Claude Code took in mid-turn, filed as a queued command, not a user turn: a
+      // background task's notification, or a message you sent while it was at work.
       if (e.type === "attachment") {
-        const prompt = e.attachment?.type === "queued_command" ? e.attachment.prompt : null;
-        if (typeof prompt === "string" && /^\s*<task-notification>/.test(prompt)) claudeUser(feed, prompt, at);
+        const a = e.attachment;
+        if (a?.type !== "queued_command") return;
+        const prompt = typeof a.prompt === "string" ? a.prompt
+          : Array.isArray(a.prompt) ? a.prompt.filter((b) => b?.type === "text").map((b) => b.text).join("\n") : "";
+        if (/^\s*<task-notification>/.test(prompt) || a.origin?.kind === "human") claudeUser(feed, prompt, at);
         return;
       }
       if (e.type === "user") {
@@ -248,6 +253,8 @@ export const KINDS = {
     glyph: "icons/grok.svg",
     tint: (t) => t.foreground,
     is: (p) => p?.app === "grok-build" || p?.program?.key === "grok",
+    // Enter on an empty input takes the messages it holds while at work in at once.
+    sendNow: ["enter"],
     wanted: (line) => GROK_WANTED.test(line),
     // Grok lists its running sessions in ~/.grok/active_sessions.json, by process; each
     // session folder has updates.jsonl, the conversation as ACP session updates.
