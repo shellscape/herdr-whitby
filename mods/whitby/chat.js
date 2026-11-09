@@ -163,7 +163,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), reading: false, loaded: false, cut: false };
+  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), reading: false, loaded: false, cut: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -300,7 +300,12 @@ function refresh(v, feed, address, cx) {
       if (!feed.path || Date.now() - feed.foundAt > REFIND) {
         const info = JSON.parse((await hc(["get", address, "--json"])).stdout);
         const path = await KINDS[feed.kind].find(info).catch(() => null);
-        if (path !== feed.path) { Object.assign(feed, newFeed(feed.kind), { path, reading: true }); changed = true; }
+        // A restarted agent (resumed) is read again, for what went with its last process.
+        const startedAt = (await KINDS[feed.kind].started?.(info).catch(() => 0)) ?? 0;
+        if (path !== feed.path || startedAt !== feed.startedAt) {
+          Object.assign(feed, newFeed(feed.kind), { path, startedAt, reading: true });
+          changed = true;
+        }
         feed.foundAt = Date.now();
       }
       if (feed.path && (await read(feed))) changed = true;

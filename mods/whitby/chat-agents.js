@@ -59,6 +59,13 @@ async function newest(pattern, id) {
   return r.stdout.trim() || null;
 }
 
+// Claude Code keeps ~/.claude/sessions/<pid>.json for each running session: its id, and
+// when its process started.
+async function claudeSession(info) {
+  const pid = info.foreground?.pid;
+  return pid ? JSON.parse((await readTextFile(`${home()}/.claude/sessions/${pid}.json`)) ?? "null") : null;
+}
+
 const push = (feed, item) => { feed.items.push(item); return item; };
 
 // Streamed pieces (Grok's chunks) join the item before them when it's the same kind.
@@ -98,10 +105,13 @@ function claudeUser(feed, text, at) {
   }
   const bash = s.match(/^<bash-input>([\s\S]*)<\/bash-input>$/);
   if (bash) return void push(feed, { kind: "user", text: `! ${bash[1]}`, at });
-  // A background task finishing: Claude Code tells the agent, not you.
+  // A background task finishing (a subagent, or a command sent to the background): Claude
+  // Code tells the agent, not you. Its call ends here, with its result, and a note says so.
   if (/^<task-notification>/.test(s)) {
-    const summary = s.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim();
-    return void push(feed, { kind: "note", text: summary || "Background task finished" });
+    const tag = (name) => s.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim();
+    const status = tag("status");
+    endTool(feed, tag("tool-use-id"), status === "failed" ? "failed" : status === "killed" ? "stopped" : "done", tag("result") ?? tag("summary"));
+    return void push(feed, { kind: "note", text: tag("summary") || "Background task finished" });
   }
   if (/^\[Request interrupted by user/.test(s)) return void push(feed, { kind: "note", text: "Stopped" });
   push(feed, { kind: "user", text: s, at });
@@ -123,14 +133,14 @@ export const KINDS = {
     glyph: ICON("clawd"),
     tint: () => "#d97757",
     is: (p) => p?.program?.key === "claude" || p?.app === "claude-code",
-    wanted: (line) => line.includes('"type":"user"') || line.includes('"type":"assistant"'),
-    // Claude Code keeps ~/.claude/sessions/<pid>.json for each running session; its
-    // transcript is ~/.claude/projects/<folder, non-alphanumerics as "-">/<session>.jsonl.
+    wanted: (line) => line.includes('"type":"user"') || line.includes('"type":"assistant"') || line.includes("<task-notification>"),
+    // The session's transcript: ~/.claude/projects/<folder, non-alphanumerics as "-">/<session>.jsonl.
     async find(info) {
-      const pid = info.foreground?.pid;
-      const s = pid ? JSON.parse((await readTextFile(`${home()}/.claude/sessions/${pid}.json`)) ?? "null") : null;
-      return newest('"$HOME"/.claude/projects/*/"$1".jsonl', s?.sessionId);
+      return newest('"$HOME"/.claude/projects/*/"$1".jsonl', (await claudeSession(info))?.sessionId);
     },
+    // When its process started: a background task from before then went with the process
+    // that ran it (a resumed session's).
+    started: async (info) => (await claudeSession(info))?.startedAt ?? 0,
     session: (path) => path?.split("/").pop().replace(/\.jsonl$/, ""),
     resume: (id) => ["claude", ...(id ? ["--resume", id] : [])],
     parse(e, feed) {
@@ -138,11 +148,28 @@ export const KINDS = {
       if (e.isSidechain) return;
       const at = stamp(e.timestamp);
       const content = e.message?.content;
+      // A background task's notification that came in mid-turn: Claude Code files it as a
+      // queued command, not a user turn.
+      if (e.type === "attachment") {
+        const prompt = e.attachment?.type === "queued_command" ? e.attachment.prompt : null;
+        if (typeof prompt === "string" && /^\s*<task-notification>/.test(prompt)) claudeUser(feed, prompt, at);
+        return;
+      }
       if (e.type === "user") {
         if (typeof content === "string") { if (!e.isMeta) claudeUser(feed, content, at); return; }
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && !e.isMeta) claudeUser(feed, b.text, at);
-          else if (b.type === "tool_result") endTool(feed, b.tool_use_id, b.is_error ? "failed" : "done", b.content);
+          else if (b.type === "tool_result") {
+            // A subagent or a command sent to the background answers at once, but runs on
+            // until Claude Code's task notification for it (see claudeUser).
+            const r = e.toolUseResult;
+            if (!b.is_error && (r?.status === "async_launched" || r?.backgroundTaskId)) {
+              // One from an earlier process went with it, unless its notification follows.
+              if (feed.startedAt && at && at < feed.startedAt) endTool(feed, b.tool_use_id, "stopped");
+              continue;
+            }
+            endTool(feed, b.tool_use_id, b.is_error ? "failed" : "done", b.content);
+          }
         }
       } else if (e.type === "assistant") {
         for (const b of Array.isArray(content) ? content : []) {
