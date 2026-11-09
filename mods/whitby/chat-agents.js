@@ -44,6 +44,46 @@ function detailOf(input) {
   return s === "{}" ? "" : s;
 }
 
+// A subagent's step in a few words, as Claude Code's terminal lists it: a file by its name,
+// a search by what it looks for, a command (or any call with one) by its description.
+function stepOf(b) {
+  const i = b.input ?? {};
+  const file = (p) => String(p ?? "").split("/").pop();
+  switch (b.name) {
+    case "Read": return `Reading ${file(i.file_path)}`;
+    case "Edit": case "MultiEdit": return `Editing ${file(i.file_path)}`;
+    case "Write": return `Writing ${file(i.file_path)}`;
+    case "Grep": return `Searching for ${i.pattern}`;
+    case "Glob": return `Finding ${i.pattern}`;
+    case "WebFetch": return `Fetching ${i.url}`;
+    case "WebSearch": return `Searching the web for ${i.query}`;
+  }
+  if (typeof i.description === "string" && i.description.trim()) return i.description.trim();
+  const tool = String(b.name ?? "").replace(/^mcp__/, "").split("__").join(" ");
+  const detail = detailOf(i);
+  return detail && !detail.startsWith("{") ? `${tool} ${detail}` : tool;
+}
+
+// What a subagent did last, from the end of its transcript: its latest step, and the tokens
+// in its latest request. Null when the end read has none (one long result filled it).
+function lastStep(text) {
+  const lines = text.split("\n");
+  // The first line can be a piece of one.
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (!lines[i].includes('"type":"assistant"')) continue;
+    let e;
+    try { e = JSON.parse(lines[i]); } catch { continue; }
+    if (e.type !== "assistant") continue;
+    const u = e.message?.usage ?? {};
+    const tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
+    const blocks = Array.isArray(e.message?.content) ? e.message.content : [];
+    const use = blocks.findLast((b) => b.type === "tool_use");
+    const doing = use ? stepOf(use) : blocks.some((b) => b.type === "text" && b.text?.trim()) ? "Writing its report" : "Thinking";
+    return { doing, tokens };
+  }
+  return null;
+}
+
 // Codex runs commands as `/bin/zsh -lc '<command>'`: show the command.
 function shellCommand(c) {
   const s = Array.isArray(c) ? c[c.length - 1] ?? "" : c ?? "";
@@ -141,6 +181,26 @@ export const KINDS = {
     // When its process started: a background task from before then went with the process
     // that ran it (a resumed session's).
     started: async (info) => (await claudeSession(info))?.startedAt ?? 0,
+    // The subagents of calls still running, by call id. Each one's transcript sits next to
+    // the session's (<session>/subagents/agent-<id>.jsonl), its .meta.json naming the call
+    // that started it; its end says what it's doing now.
+    async subagents(path, ids) {
+      const dir = path.replace(/\.jsonl$/, "/subagents");
+      const list = 'for m in "$1"/*.meta.json; do [ -f "$m" ] && printf "%s\\t%s\\n" "$m" "$(tr -d "\\n" < "$m")"; done';
+      const rows = (await exec("/bin/sh", ["-c", list, "sh", dir])).stdout.split("\n");
+      const out = new Map();
+      for (const row of rows) {
+        const tab = row.indexOf("\t");
+        if (tab < 0) continue;
+        let meta;
+        try { meta = JSON.parse(row.slice(tab + 1)); } catch { continue; }
+        if (!ids.includes(meta.toolUseId)) continue;
+        const file = row.slice(0, tab).replace(/\.meta\.json$/, ".jsonl");
+        const last = lastStep((await exec("tail", ["-c", "262144", file]).catch(() => ({ stdout: "" }))).stdout);
+        if (last) out.set(meta.toolUseId, last);
+      }
+      return out;
+    },
     session: (path) => path?.split("/").pop().replace(/\.jsonl$/, ""),
     resume: (id) => ["claude", ...(id ? ["--resume", id] : [])],
     parse(e, feed) {
@@ -175,7 +235,8 @@ export const KINDS = {
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && b.text?.trim()) push(feed, { kind: "text", text: b.text });
           else if (b.type === "thinking" && b.thinking?.trim()) push(feed, { kind: "thinking", text: b.thinking });
-          else if (b.type === "tool_use") tool(feed, b.id, b.name, detailOf(b.input));
+          // When it started: a subagent's clock counts from it.
+          else if (b.type === "tool_use") tool(feed, b.id, b.name, detailOf(b.input)).at ??= at;
         }
       }
     },

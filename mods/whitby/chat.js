@@ -30,6 +30,10 @@ const TAIL = 1_500_000, KEEP = 400;
 // SHOWN has passed and every other chat agent's when BACKGROUND has (so a click shows it at
 // once), and looks for a session's file again after REFIND (a new session after /clear).
 const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
+// How often the shown agent's subagents at work are read (see KINDS.claude.subagents).
+const SUBAGENTS = 2000;
+// How long after a chip opens or closes the chat holds what's on screen (see viewport).
+const HOLD = 400;
 // How often the screen of an agent that's starting or asking something is read, so its
 // question shows in the chat (chat-screen.js).
 const SCREEN = 500, SCREEN_BACKGROUND = 2000;
@@ -163,7 +167,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), reading: false, loaded: false, cut: false };
+  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -203,6 +207,12 @@ function tick(v, cx) {
     // Behind other windows, only a first load: the rest waits until you come back.
     if (!front && feed.loaded) continue;
     if (!feed.reading && now - feed.readAt >= (a.address === shown ? SHOWN : BACKGROUND)) refresh(v, feed, a.address, cx);
+  }
+  // While the shown agent's subagents work, their clocks count each second.
+  const second = Math.floor(now / 1000);
+  if (front && shown && second !== v.second && runningAgents(v.feeds.get(shown)).length) {
+    v.second = second;
+    cx.notify();
   }
   shareAsking(v);
 }
@@ -309,6 +319,14 @@ function refresh(v, feed, address, cx) {
         feed.foundAt = Date.now();
       }
       if (feed.path && (await read(feed))) changed = true;
+      const working = runningAgents(feed);
+      const subagents = KINDS[feed.kind].subagents;
+      if (subagents && feed.path && working.length && Date.now() - feed.agentsAt >= SUBAGENTS) {
+        const found = await subagents(feed.path, working.map((it) => it.id)).catch(() => null);
+        for (const [id, info] of found ?? []) feed.agents.set(id, info);
+        feed.agentsAt = Date.now();
+        changed = true;
+      }
     } catch (err) {
       console.log(`whitby chat: ${address}: ${err}`);
     }
@@ -556,6 +574,7 @@ function reply(t, key, it) {
 
 function toggle(v, key, cx) {
   v.open.has(key) ? v.open.delete(key) : v.open.add(key);
+  v.keepAt = Date.now();
   cx.notify();
 }
 
@@ -638,6 +657,39 @@ function calls(v, t, address, group) {
       .child(mark(t, it.status));
     return v.open.has(key) && out ? [row, output(t, out)] : [row];
   }));
+}
+
+// The subagent calls still running in a feed.
+function runningAgents(feed) {
+  return (feed?.items ?? []).filter((it) => it.kind === "tool" && it.status === "running" && toolKind(it) === "agent");
+}
+
+// "3m 5s", as Claude Code counts a subagent's time.
+function elapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+// The shown agent's subagents at work, above the reply box, as Claude Code lists them under
+// its prompt: each one's task, what it's doing now, how long it has run, and the tokens in
+// its latest request.
+function subagentList(t, address, feed) {
+  const working = runningAgents(feed);
+  if (!working.length) return null;
+  const now = Date.now();
+  return v_flex().id(`subagents-${address}`).w_full().py(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
+    .children(working.map((it) => {
+      const info = feed.agents?.get(it.id);
+      const tokens = info?.tokens ? `↓ ${info.tokens >= 1000 ? `${(info.tokens / 1000).toFixed(1)}k` : info.tokens} tokens` : null;
+      const facts = [it.at ? elapsed(now - it.at) : null, tokens].filter(Boolean).join(" · ");
+      return h_flex().id(`subagent-${it.id}`).h(26).px(10).gap(8).items_center().text_size(12)
+        .child(svg(ICON_LOADER).size(11).flex_none().text_color(t.muted).spin(900))
+        .child(div().flex_none().max_w(240).truncate().font_weight(500).text_color(t.foreground).child(tidy(it.detail) || it.name))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(info?.doing ?? "Starting"))
+        .child(div().flex_none().text_size(11.5).text_color(t.muted).child(facts));
+    }));
 }
 
 // A run of tool calls and reasoning: its chips in a row, and under them each open one's calls.
@@ -768,26 +820,34 @@ function screenCard(v, t, address, name, tail) {
 // The conversation scrolls in a viewport of its own, kept on the newest message: it rests
 // on its bottom edge and the wheel lifts it. Short chats sit at the top, as Grok Bot's do.
 // While you read back, new messages don't move what you're reading, and "Latest" brings you
-// down again.
+// down again. While you read back, and as a chip opens or closes, the content holds its top
+// edge, so what's on screen stays put (on its bottom edge, it would jump for a frame, until
+// its new height came back).
 function viewport(v, t, address, body) {
   if (v.viewOf !== address) { v.viewOf = address; v.lift = 0; v.contentH = 0; }
   const room = Math.max(0, v.contentH - v.viewH);
   v.lift = Math.min(v.lift, room);
   const fits = !v.viewH || v.contentH <= v.viewH;
+  const keep = v.lift > 0 || Date.now() - (v.keepAt ?? 0) < HOLD;
   const content = v_flex()
     .id(`chat-content-${address}`)
     .absolute()
     .left(0)
     .right(0)
     .when(fits, (el) => el.top(0))
-    .when(!fits, (el) => el.bottom(-v.lift))
+    .when(!fits && keep, (el) => el.top(v.viewH + v.lift - v.contentH))
+    .when(!fits && !keep, (el) => el.bottom(0))
     .items_center()
     .px(24)
     .pt(14)
     .pb(18)
     .on_size_change((size, cx) => {
       if (size.height === v.contentH) return;
-      if (v.lift > 0 && v.contentH) v.lift += size.height - v.contentH;
+      // The same top edge at the new height: the top when it fit, else where it was.
+      if (keep && v.contentH) {
+        const top = v.contentH <= v.viewH ? 0 : v.viewH + v.lift - v.contentH;
+        v.lift = Math.max(0, top - v.viewH + size.height);
+      }
       v.contentH = size.height;
       cx.notify();
     })
@@ -942,8 +1002,11 @@ export function chat(v) {
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
   const body = [...said, ...empty, ...going, ...tail];
+  const working = subagentList(t, address, feed);
   return frame
     .child(viewport(v, t, address, body))
+    .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)
+      .child(div().w_full().max_w(COLUMN).child(working))))
     .when(Boolean(card), (el) => el.child(v_flex().id(`card-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(card))))
     .child(composerArea(v, t, target, p.status === "working" && !starting));
