@@ -33,7 +33,7 @@ const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
 // How often the shown agent's subagents at work are read (see KINDS.claude.subagents).
 const SUBAGENTS = 2000;
 // How often the agent's slash-command menu is read again while it shows (see syncSlash).
-const SLASH_READ = 700;
+const SLASH_READ = 300;
 // How long after a chip opens or closes the chat holds what's on screen (see viewport).
 const HOLD = 400;
 // How often the screen of an agent that's starting or asking something is read, so its
@@ -155,6 +155,8 @@ export function initChat(v, cx) {
   // one thing at a time (see lane).
   v.slash = new Map();
   v.lanes = new Map();
+  // The agents whose reply box has the keyboard.
+  v.typing = new Set();
   // While the menu shows, ↑, ↓ and Tab are its: bound where the reply box's field sits in it,
   // so they win over the field's own.
   try {
@@ -180,7 +182,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, startedAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
+  return { kind, path: null, startedAt: 0, stale: null, freshAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -342,7 +344,9 @@ function refresh(v, feed, address, cx) {
     try {
       if (!feed.path || Date.now() - feed.foundAt > REFIND) {
         const info = JSON.parse((await hc(["get", address, "--json"])).stdout);
-        const path = await KINDS[feed.kind].find(info).catch(() => null);
+        let path = await KINDS[feed.kind].find(info).catch(() => null);
+        // After /new or /clear, the old session until the new one shows (see startFresh).
+        if (feed.stale && path === feed.stale && Date.now() - feed.freshAt < FRESH_WAIT) path = null;
         // A restarted agent (resumed) is read again, for what went with its last process.
         const startedAt = (await KINDS[feed.kind].started?.(info).catch(() => 0)) ?? 0;
         if (path !== feed.path || startedAt !== feed.startedAt) {
@@ -417,8 +421,22 @@ function composer(v, address) {
     const text = st.value().replace(/\n$/, "");
     if (!runSlash(v, address, text, cx)) send(v, address, text, cx);
   });
+  st.on("focus", () => v.typing.add(address));
+  st.on("blur", () => v.typing.delete(address));
   v.inputs.set(address, st);
   return st;
+}
+
+// A key typed in the chat while something else in it has the keyboard (a reply you clicked
+// to select from, say): it goes into the reply box, which takes the keyboard, as in Codex.
+function typeIntoComposer(v, address, e, cx) {
+  const m = e.modifiers ?? {};
+  if (v.typing.has(address) || !e.key_char || m.control || m.alt || m.platform || m.function) return;
+  const st = v.inputs.get(address);
+  if (!st) return;
+  cx.stop_propagation();
+  st.set_value(st.value() + e.key_char);
+  st.focus();
 }
 
 const liveState = (address) => terminals().find((k) => k.address === address)?.status;
@@ -429,6 +447,18 @@ function answeringByText(v, address) {
   if (v.freeText.has(address)) return true;
   const sc = v.screens.get(address);
   return liveState(address) === "blocked" && Boolean(sc?.readAt) && !sc.dialog;
+}
+
+// /new or /clear starts the agent on a new conversation: the chat clears at once, and looks
+// for the new session every refresh (not every REFIND) until it's there. While the agent
+// still has the old one, the old one isn't read again; after FRESH_WAIT it is (the command
+// didn't take).
+const FRESH = /^\/(new|clear)$/;
+const FRESH_WAIT = 15_000;
+function startFresh(v, address, command) {
+  const feed = v.feeds.get(address);
+  if (!feed || !FRESH.test(command)) return;
+  Object.assign(feed, newFeed(feed.kind), { loaded: true, stale: feed.path, freshAt: Date.now() });
 }
 
 // A message joins the agent's queue and goes as soon as the agent is ready (see flush): at
@@ -451,6 +481,7 @@ function send(v, address, text, cx) {
     cx.notify();
     return;
   }
+  startFresh(v, address, text);
   const q = v.queue.get(address) ?? [];
   q.push({ text, at: Date.now(), tries: 0 });
   v.queue.set(address, q);
@@ -512,7 +543,7 @@ function sendNow(v, address, kind, m, cx) {
       await clearCommand(v, address);
       let presses = 1;
       if (k.sendNowEach) {
-        const screen = (await hc(["read", address, "--lines", "40"]).catch(() => ({ stdout: "" }))).stdout ?? "";
+        const screen = (await hc(["read", address]).catch(() => ({ stdout: "" }))).stdout ?? "";
         const head = m.text.trim().split("\n")[0].slice(0, 30);
         const row = [...screen.matchAll(/^\s*#(\d+)\s+(.*)$/gm)].find((r) => head && r[2].trim().startsWith(head));
         presses = row ? Number(row[1]) : upTo.length;
@@ -573,9 +604,11 @@ async function clearCommand(v, address) {
   Object.assign(s, { typed: "", rows: [] });
 }
 
+// Only the screen: the menu is on it, and a read with history above it (--lines) can be
+// seconds behind for an agent; the screen alone is current within milliseconds.
 async function readSlash(address, cx) {
-  await cx.sleep(120);
-  const r = await hc(["read", address, "--lines", "40"]);
+  await cx.sleep(30);
+  const r = await hc(["read", address]);
   return r.code === 0 ? readPalette(r.stdout) : [];
 }
 
@@ -638,6 +671,7 @@ function takeSlash(v, address, name, cx) {
 function runSlash(v, address, text, cx) {
   if (!slashShown(v, address) || v.slash.get(address).typed !== text.trim()) return false;
   const s = v.slash.get(address);
+  startFresh(v, address, s.rows.find((r) => r.picked)?.name ?? s.typed);
   Object.assign(s, { typed: "", rows: [] });
   v.inputs.get(address)?.set_value("");
   v.typed.set(address, "");
@@ -1239,6 +1273,7 @@ export function chat(v) {
   const body = [...said, ...empty, ...going, ...tail, ...(card ? [card] : [])];
   const working = workList(t, address, feed);
   return frame
+    .on_key_down((e, cx) => typeIntoComposer(v, address, e, cx))
     .child(viewport(v, t, address, body))
     .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(working))))
