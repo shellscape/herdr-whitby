@@ -84,6 +84,32 @@ function lastStep(text) {
   return null;
 }
 
+// What Grok files as your turn that you didn't write: a monitor's event (a note: the watcher
+// and what it saw), a loop's run (a note: how often it runs), or another reminder (nothing).
+// Anything else is yours (undefined).
+function grokNote(text) {
+  const s = text.trim();
+  const monitor = s.match(/^<monitor-event[^>]*>\s*(?:\[([^\]]*)\])?\s*([\s\S]*?)\s*<\/monitor-event>$/);
+  if (monitor) {
+    const [, label, body] = monitor;
+    // Each line an event: a JSON one by its kind, check and outcome.
+    const what = body.split("\n").filter((l) => l.trim()).map((l) => {
+      try {
+        const j = JSON.parse(l);
+        return [String(j.kind ?? "").replace(/_/g, " "), j.name, j.conclusion].filter(Boolean).join(" · ");
+      } catch {
+        return l.trim();
+      }
+    }).join("; ");
+    return [label, what].filter(Boolean).join(": ").slice(0, 240);
+  }
+  if (/^<system-reminder>/.test(s)) {
+    const loop = s.match(/Scheduled task \S+ \(([^)]+)\)/);
+    return loop ? `Loop ran (${loop[1]})` : "";
+  }
+  return undefined;
+}
+
 // What a Grok subagent did last, from the end of its session: its latest call (by its
 // description, else what it ran), or its thinking or its reply; and the tokens in play.
 function grokStep(text) {
@@ -344,7 +370,12 @@ export const KINDS = {
       if (!u) return;
       const at = e.timestamp ? e.timestamp * 1000 : null;
       switch (u.sessionUpdate) {
-        case "user_message_chunk": append(feed, "user", u.content?.text, at); return;
+        case "user_message_chunk": {
+          const note = grokNote(u.content?.text ?? "");
+          if (note === undefined) append(feed, "user", u.content?.text, at);
+          else if (note) push(feed, { kind: "note", text: note });
+          return;
+        }
         case "agent_message_chunk": append(feed, "text", u.content?.text); return;
         case "agent_thought_chunk": append(feed, "thinking", u.content?.text); return;
         case "tool_call": {

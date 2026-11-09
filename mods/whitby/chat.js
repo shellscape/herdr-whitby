@@ -744,21 +744,14 @@ function userMessage(t, it, faded, caption, action) {
           .on_click((_e, cx) => action.run(cx)).child(action.label)))));
 }
 
-// Your words as markdown that shows them as written: markdown's marks escaped, a line's
-// indent kept, web addresses as links and paths as inline code (as inline() picks them out),
-// and each line break kept.
+// Your words as markdown that shows them as written: every mark markdown would act on
+// escaped ("/" too, so no web address turns into a link), a line's indent kept, and each
+// line break kept. A text view on Whitby's blue keeps the theme's colors for links and code
+// (blue links, light code), which can't be read there, so addresses and paths stay text.
 function asMarkdown(text) {
-  const plain = (s) => s.replace(/[\\`*_{}[\]()#+\-.!|<>~]/g, "\\$&");
   return text.split("\n").map((line) => {
     const indent = line.match(/^ */)[0];
-    return "\u00a0".repeat(indent.length) + line.slice(indent.length).split(/(\s+)/).map((w) => {
-      if (!w || /^\s+$/.test(w)) return w;
-      const trail = w.match(TRAIL)?.[0] ?? "";
-      const core = trail ? w.slice(0, -trail.length) : w;
-      if (URL.test(core)) return `<${core}>${plain(trail)}`;
-      if (PATH.test(core) && !core.includes("`")) return `\`${core}\`${plain(trail)}`;
-      return plain(w);
-    }).join("");
+    return "\u00a0".repeat(indent.length) + line.slice(indent.length).replace(/[\\`*_{}[\]()#+\-.!|<>~/:]/g, "\\$&");
   }).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
 }
 
