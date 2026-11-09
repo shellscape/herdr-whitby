@@ -1219,8 +1219,9 @@ export function chat(v) {
   // anything to it is still starting (Codex reports working while it sets up).
   const asked = Boolean(going.length) || Boolean(feed?.items.some((it) => it.kind === "user"));
   const starting = !p.status || (p.status === "working" && !asked);
-  // A question the agent shows in its terminal, read off its screen, shows above the reply
-  // box to answer, whenever the chat shows (also on coming back from the terminal).
+  // A question the agent shows in its terminal, read off its screen, shows at the foot of the
+  // conversation, just above the reply box, to answer, whenever the chat shows (also on coming
+  // back from the terminal). It scrolls with the conversation, so a long one can be read.
   const screen = !READY.has(p.status) ? v.screens.get(address) : null;
   const held = !READY.has(p.status) ? v.answered.get(address)?.dialog : null;
   const card = v.freeText.has(address) ? null
@@ -1235,14 +1236,12 @@ export function chat(v) {
   const quiet = feed?.loaded && !said.length && !going.length && !tail.length && !card;
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
-  const body = [...said, ...empty, ...going, ...tail];
+  const body = [...said, ...empty, ...going, ...tail, ...(card ? [card] : [])];
   const working = workList(t, address, feed);
   return frame
     .child(viewport(v, t, address, body))
     .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(working))))
-    .when(Boolean(card), (el) => el.child(v_flex().id(`card-${address}`).flex_none().items_center().px(24).pt(6)
-      .child(div().w_full().max_w(COLUMN).child(card))))
     .when(slashShown(v, address), (el) => el.child(v_flex().id(`slash-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(slashMenu(v, t, address)))))
     .child(composerArea(v, t, target, p.status === "working" && !starting));
