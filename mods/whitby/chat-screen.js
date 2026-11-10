@@ -6,9 +6,9 @@
 //   readDialog(screen) → { question, options: [{ label, detail, free }], selected, esc, auto } | null
 //
 // `free`: an option that opens a field to type in ("Type something."). `auto`: the seconds
-// left before the agent goes on without your answer, while it counts down, else null. Answering moves the
-// cursor with the arrow keys and presses Enter (answerKeys), never the option's number:
-// Codex can read a number as a different answer.
+// left before the agent goes on without your answer, while it counts down, else null.
+// Answering moves the cursor with the arrow keys and presses Enter (answerKeys), never the
+// option's number: Codex can read a number as a different answer.
 
 // The footer: Enter or Esc, and what they do.
 const FOOTER = /\b(enter|esc)\b[^\n]*\b(confirm|select|continue|cancel|skip|navigate)\b/i;
