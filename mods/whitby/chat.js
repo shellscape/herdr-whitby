@@ -15,7 +15,7 @@ import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFold
 import { palette, alpha, icon, stateOf, reportOf, ASKING, MODEL, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
-import { readDialog, answerKeys, screenTail, readPalette, LINKS } from "./chat-screen.js";
+import { readDialog, answerKeys, screenTail, readPalette, readQueue, LINKS } from "./chat-screen.js";
 
 const MONO = "Geist Mono";
 // Whitby's corners: 4px on bubbles, cards and controls (only status dots are round).
@@ -39,6 +39,9 @@ const HOLD = 400;
 // How often the screen of an agent that's starting or asking something is read, so its
 // question shows in the chat (chat-screen.js).
 const SCREEN = 500, SCREEN_BACKGROUND = 2000;
+// How often the shown agent's queue is read off its screen (Grok's): at work, else; and how
+// long after opening it there (it was folded) before trying again.
+const QUEUE_READ = 500, QUEUE_IDLE = 2000, QUEUE_OPEN = 5000;
 // How long an answered prompt's card waits for its agent to report back.
 const ANSWER_HOLD = 20_000;
 
@@ -152,6 +155,11 @@ export function initChat(v, cx) {
   // far down you scrolled each, by agent (see workList).
   v.workOpen = new Set();
   v.workTop = new Map();
+  // The queue each agent shows on its screen (Grok's, see readQueue), the queue lists you
+  // folded (each starts open), and the row being sent now, by agent (see queueList).
+  v.agentQueues = new Map();
+  v.queueShut = new Set();
+  v.pushing = new Map();
   v.lift = 0;
   v.viewH = 0;
   v.contentH = 0;
@@ -225,6 +233,10 @@ function tick(v, cx) {
       feed = carried(v, a) ?? newFeed(a.kind);
       v.feeds.set(a.address, feed);
       if (v.moved?.feed === feed) v.moved = null;
+    }
+    if (front && a.address === shown && KINDS[a.kind].queue) {
+      const q = v.agentQueues.get(a.address);
+      if (!q?.reading && now - (q?.readAt ?? 0) >= (a.p.status === "working" ? QUEUE_READ : QUEUE_IDLE)) readAgentQueue(v, a.address, cx);
     }
     // Behind other windows, only a first load: the rest waits until you come back.
     if (!front && feed.loaded) continue;
@@ -300,6 +312,25 @@ function readScreen(v, address, cx) {
     }
     const same = JSON.stringify(before?.dialog ?? null) === JSON.stringify(next.dialog) && before?.tail === next.tail;
     if (!same && chatTarget()?.address === address) cx.notify();
+  });
+}
+
+// Reads the queue the agent lists above its input (Grok's, see readQueue). Folded there, its
+// rows don't show: it's opened (Ctrl+;, its queue key), at most once every QUEUE_OPEN.
+function readAgentQueue(v, address, cx) {
+  const before = v.agentQueues.get(address);
+  v.agentQueues.set(address, { count: 0, rows: [], openedAt: 0, ...before, reading: true });
+  cx.spawn(async (cx) => {
+    const r = await hc(["read", address]).catch(() => ({ code: 1, stdout: "" }));
+    const q = (r.code === 0 ? readQueue(r.stdout) : null) ?? { count: 0, folded: false, rows: [] };
+    const next = { ...q, readAt: Date.now(), reading: false, openedAt: before?.openedAt ?? 0 };
+    if (q.folded && q.count && next.readAt - next.openedAt >= QUEUE_OPEN) {
+      next.openedAt = next.readAt;
+      lane(v, address, () => hc(["keys", address, "ctrl+;"])).catch(() => {});
+    }
+    v.agentQueues.set(address, next);
+    const key = (x) => JSON.stringify([x?.count ?? 0, x?.rows ?? []]);
+    if (key(before) !== key(next) && chatTarget()?.address === address) cx.notify();
   });
 }
 
@@ -565,34 +596,85 @@ function stop(address, cx) {
 }
 
 // "Send now" on a message the agent holds while it works: its own key for that (Claude Code's
-// ctrl+enter, Grok's Enter on an empty input), which takes what it holds in at once.
-// Grok takes what it holds in one message a press, first in first out: "Send now" on one
-// presses once for it and once for each ahead of it in Grok's queue (its "#n" there, read
-// off its screen; else its place among the chat's own). Claude Code takes them all at once.
-function sendNow(v, address, kind, m, cx) {
+// ctrl+enter), which takes all it holds in at once.
+function sendNow(v, address, kind, cx) {
   const k = KINDS[kind];
   if (!k.sendNow) return;
-  const pending = v.pending.get(address) ?? [];
-  const upTo = k.sendNowEach ? pending.slice(0, pending.indexOf(m) + 1) : pending;
-  for (const x of upTo) x.nudged = true;
+  for (const x of v.pending.get(address) ?? []) x.nudged = true;
   cx.spawn(async (cx) => {
     await lane(v, address, async () => {
       await clearCommand(v, address);
-      let presses = 1;
-      if (k.sendNowEach) {
-        const screen = (await hc(["read", address]).catch(() => ({ stdout: "" }))).stdout ?? "";
-        const head = m.text.trim().split("\n")[0].slice(0, 30);
-        const row = [...screen.matchAll(/^\s*#(\d+)\s+(.*)$/gm)].find((r) => head && r[2].trim().startsWith(head));
-        presses = row ? Number(row[1]) : upTo.length;
-      }
-      for (let i = 0; i < presses; i++) {
-        if (i) await cx.sleep(300);
-        await hc(["keys", address, ...k.sendNow]);
-      }
+      await hc(["keys", address, ...k.sendNow]);
     }).catch((err) => console.log(`whitby chat: ${address}: ${err}`));
     cx.notify();
   });
   cx.notify();
+}
+
+// Send now on a row of Grok's queue, as in its queue pane: ↑ from its empty input picks the
+// last row, ↑ again the one above; Ctrl+Enter then stops its turn and runs that message
+// next, the rest staying queued. Then ↓ past the last row, back to its input. With the
+// keyboard on its conversation (as it leaves it once its queue empties), its footer says
+// "Space:prompt": Space first takes it back to its input. The screen is read after each
+// key: a row that isn't there any more sends nothing.
+function pushQueued(v, address, row, cx) {
+  if (v.pushing.has(address)) return;
+  v.pushing.set(address, row.n);
+  cx.notify();
+  cx.spawn(async (cx) => {
+    let screen = "";
+    const look = async () => {
+      await cx.sleep(60);
+      const r = await hc(["read", address]).catch(() => ({ code: 1, stdout: "" }));
+      screen = r.code === 0 ? r.stdout : "";
+      return readQueue(screen) ?? { count: 0, rows: [] };
+    };
+    const picked = (q) => q.rows.find((r) => r.picked);
+    const toInput = async () => {
+      const foot = screen.split("\n").filter((l) => l.trim() && !l.startsWith("[hc]")).pop() ?? "";
+      if (!/\bSpace:prompt\b/.test(foot)) return false;
+      await hc(["keys", address, "space"]);
+      return true;
+    };
+    // The picked row is cut shorter (its buttons take the room): the same row starts alike.
+    const same = (a, b) => {
+      const [x, y] = [a, b].map((s) => s.replace(/…$/, ""));
+      const n = Math.min(x.length, y.length, 40);
+      return n > 0 && x.slice(0, n) === y.slice(0, n);
+    };
+    await lane(v, address, async () => {
+      await clearCommand(v, address);
+      let q = await look();
+      if (await toInput()) q = await look();
+      if (!picked(q)) {
+        await hc(["keys", address, "up"]);
+        q = await look();
+      }
+      for (let i = 0; i < q.count && picked(q) && picked(q).n !== row.n; i++) {
+        await hc(["keys", address, picked(q).n > row.n ? "up" : "down"]);
+        q = await look();
+      }
+      const at = picked(q);
+      if (at && at.n === row.n && same(at.text, row.text)) {
+        await hc(["keys", address, "ctrl+enter"]);
+        // Until Grok has taken it: its row gone, or another message in its place.
+        for (let i = 0; i < 10; i++) {
+          q = await look();
+          const now = picked(q);
+          if (!now || now.n !== row.n || !same(now.text, row.text)) break;
+        }
+      }
+      for (let i = 0; i <= q.count && picked(q); i++) {
+        await hc(["keys", address, "down"]);
+        q = await look();
+      }
+      await toInput();
+    }).catch((err) => console.log(`whitby chat: ${address}: ${err}`));
+    v.pushing.delete(address);
+    const q = v.agentQueues.get(address);
+    if (q) q.readAt = 0;
+    cx.notify();
+  });
 }
 
 // The agent's input takes one thing at a time: a command's keys, its menu's moves, a message.
@@ -1003,6 +1085,41 @@ function elapsed(ms) {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
+// Grok's queue, under the background-work list: the messages it holds while it works, as
+// its terminal lists them (see readQueue), each with Send now (see pushQueued), which stops
+// its turn and runs that message next. Open as it starts; its chevron, in the same place
+// open or folded, folds it to one line: how many are queued.
+function queueList(v, t, address) {
+  const q = v.agentQueues.get(address);
+  if (!q?.count) return null;
+  const shut = v.queueShut.has(address) || !q.rows.length;
+  const box = v_flex().id(`queue-${address}`).relative().w_full().rounded(RADIUS).bg(t.front).border(1).border_color(t.border).py(4);
+  const fold = div().id(`queue-fold-${address}`).absolute().top(4 + (WORK_ROW - 20) / 2).right(6).w(20).h(20).flex().items_center().justify_center()
+    .rounded(RADIUS).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground).bg(t.rowHover))
+    .on_click((_e, cx) => {
+      if (v.queueShut.has(address)) v.queueShut.delete(address);
+      else v.queueShut.add(address);
+      cx.notify();
+    })
+    .child(icon(shut ? "sidebar-chevron-right" : "sidebar-chevron-down", 9));
+  const line = () => h_flex().h(WORK_ROW).pl(10).pr(30).gap(8).items_center().text_size(12)
+    .child(div().flex_none().w(12).flex().justify_center().text_color(t.muted).child(icon("clock", 12)));
+  if (shut) {
+    return box.child(line().child(div().flex_none().font_weight(500).text_color(t.foreground)
+      .child(`${q.count} queued message${q.count === 1 ? "" : "s"}`))).child(fold);
+  }
+  const pushing = v.pushing.get(address);
+  return box.children(q.rows.map((r) => line().id(`queue-${address}-${r.n}`).flex_none()
+      .child(div().flex_none().w(22).text_size(11).text_color(t.muted).child(`#${r.n}`))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(r.text))
+      .child(pushing === r.n ? div().flex_none().text_size(11.5).text_color(t.muted).child("Sending now…")
+        : div().id(`queue-${address}-${r.n}-now`).flex_none().text_size(11.5).text_color(t.link)
+          .when(!pushing, (el) => el.cursor_pointer().hover((s) => s.underline()).on_click((_e, cx) => pushQueued(v, address, r, cx)))
+          .opacity(pushing ? 0.5 : 1)
+          .child("Send now"))))
+    .child(fold);
+}
+
 // The background-work list: its rows, how many show at once (the rest scroll), and the
 // strip under them that points to the rows scrolled out of sight.
 const WORK_ROW = 26, WORK_ROWS = 8, WORK_EDGE = 12;
@@ -1131,7 +1248,8 @@ function messages(v, t, address, feed) {
   return out;
 }
 
-// Your messages on their way: sent ones the session doesn't have yet, then queued ones.
+// Your messages on their way: sent ones the session doesn't have yet, then queued ones. One
+// in Grok's queue shows there instead (see queueList).
 function outgoing(v, t, address, feed, ready, name, kind) {
   // One the agent holds while it works stays until it takes it in, however long that is.
   const working = liveState(address) === "working";
@@ -1143,9 +1261,11 @@ function outgoing(v, t, address, feed, ready, name, kind) {
   v.pending.set(address, sent);
   const queued = v.queue.get(address) ?? [];
   const held = (m) => !working ? [] : m.nudged ? ["Sending now…"]
-    : ["Queued", ...(KINDS[kind].sendNow ? [{ label: "Send now", run: (cx) => sendNow(v, address, kind, m, cx) }] : [])];
+    : ["Queued", ...(KINDS[kind].sendNow ? [{ label: "Send now", run: (cx) => sendNow(v, address, kind, cx) }] : [])];
+  const rows = KINDS[kind].queue ? v.agentQueues.get(address)?.rows ?? [] : [];
+  const listed = (m) => rows.some((r) => words(r.text).includes(words(m.text.split("\n")[0]).slice(0, 30)));
   return [
-    ...sent.map((m) => userMessage(t, m, true, ...held(m))),
+    ...sent.filter((m) => !(working && listed(m))).map((m) => userMessage(t, m, true, ...held(m))),
     ...queued.map((m) => userMessage(t, m, true, ready ? "Sending…" : `Queued until ${name} is ready`)),
   ];
 }
@@ -1410,12 +1530,15 @@ export function chat(v) {
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
   const body = [...said, ...empty, ...going, ...tail, ...(card ? [card] : [])];
   const working = workList(v, t, address, feed);
+  const queue = KINDS[target.kind].queue ? queueList(v, t, address) : null;
   return frame
     .track_focus(v.chatFocus)
     .on_key_down((e, cx) => typeIntoComposer(v, address, e, cx))
     .child(viewport(v, t, address, body))
     .when(Boolean(working), (el) => el.child(v_flex().id(`working-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(working))))
+    .when(Boolean(queue), (el) => el.child(v_flex().id(`queued-${address}`).flex_none().items_center().px(24).pt(6)
+      .child(div().w_full().max_w(COLUMN).child(queue))))
     .when(slashShown(v, address), (el) => el.child(v_flex().id(`slash-${address}`).flex_none().items_center().px(24).pt(6)
       .child(div().w_full().max_w(COLUMN).child(slashMenu(v, t, address)))))
     .child(composerArea(v, t, target, p.status === "working" && !starting));

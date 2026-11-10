@@ -373,10 +373,9 @@ export const KINDS = {
     glyph: "icons/grok.svg",
     tint: (t) => t.foreground,
     is: (p) => p?.app === "grok-build" || p?.program?.key === "grok",
-    // Enter on an empty input takes the first message it holds while at work in at once;
-    // each press the next (sendNowEach).
-    sendNow: ["enter"],
-    sendNowEach: true,
+    // The messages it holds while at work are listed above its input (its queue): the chat
+    // reads them off its screen and lists them too, each with Send now (see queueList).
+    queue: true,
     // Its subagents' own sessions sit beside its own (<folder>/<child session>/updates.jsonl).
     async subagents(path, entries) {
       const dir = path.replace(/\/[^/]+\/updates\.jsonl$/, "");

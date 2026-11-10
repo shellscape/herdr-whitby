@@ -153,3 +153,33 @@ export function readPalette(screen) {
   }
   return rows;
 }
+
+// Grok's queue: the messages it holds while it works, listed just above its input box under
+// a "▾ Queued 3" line ("▸" folded, its rows hidden), one row each: "#1" and the message, a
+// long one cut with "…", one of several lines as its first and "(+2 lines)". The row picked
+// in its queue pane ends with that row's buttons. A message from another terminal is the
+// `<hc from="t12v">` hc wraps it in: shown as "t12v: …", as the chat shows it.
+//
+//   readQueue(screen) → { count, folded, rows: [{ n, text, picked }] } | null
+const QUEUED = /^\s*([▾▸])\s+Queued\s+(\d+)$/;
+const QUEUE_ROW = /^\s*#(\d+)\s+(.*)$/;
+const ROW_BUTTONS = /\s*\[Send now\]\[edit\]\[cancel\]$/;
+
+export function readQueue(screen) {
+  const lines = (screen ?? "").split("\n").filter((l) => !l.startsWith("[hc]")).map((l) => l.replace(/[\s█▐▌]+$/u, ""));
+  let box = lines.length - 1;
+  while (box >= 0 && !/^\s*╭─/.test(lines[box])) box--;
+  // Up from the input box: the rows, then the line over them. Anything else: no queue.
+  let i = box - 1;
+  while (i >= 0 && (QUEUE_ROW.test(lines[i]) || !lines[i].trim())) i--;
+  const head = i >= 0 ? lines[i].match(QUEUED) : null;
+  if (!head) return null;
+  const rows = [];
+  for (const line of lines.slice(i + 1, box)) {
+    const row = line.match(QUEUE_ROW);
+    if (!row) continue;
+    const text = row[2].replace(ROW_BUTTONS, "").replace(/^<hc from="([^"]+)">/, "$1: ").replace(/<\/hc>$/, "");
+    rows.push({ n: Number(row[1]), text, picked: ROW_BUTTONS.test(row[2]) });
+  }
+  return { count: Number(head[2]), folded: head[1] === "▸", rows };
+}
