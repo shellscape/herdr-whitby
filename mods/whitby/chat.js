@@ -148,6 +148,10 @@ export function initChat(v, cx) {
   v.answered = new Map();
   v.changed = new Set();
   v.open = new Set();
+  // The background-work lists you opened (each starts folded to its summary line), and how
+  // far down you scrolled each, by agent (see workList).
+  v.workOpen = new Set();
+  v.workTop = new Map();
   v.lift = 0;
   v.viewH = 0;
   v.contentH = 0;
@@ -944,17 +948,49 @@ function elapsed(ms) {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
+// The background-work list: its rows, how many show at once (the rest scroll), and the
+// strip under them that points to the rows scrolled out of sight.
+const WORK_ROW = 26, WORK_ROWS = 8, WORK_EDGE = 12;
+
 // The shown agent's background work, above the reply box, as its terminal lists it: each
 // subagent's task, what it's doing now, how long it has run and the tokens in its latest
 // request; each background command and monitor (Grok's watchers) and how long it has run;
-// each loop, how often it runs and when next.
-function workList(t, address, feed) {
+// each loop, how often it runs and when next. Up to WORK_ROWS show; the rest scroll, with an
+// arrow at the bottom: down while there's more below, up once you're at the bottom. Its
+// chevron, in the same place open or folded, opens it; folded (as it starts) it's one line:
+// how many are running, of each kind.
+function workList(v, t, address, feed) {
   const all = liveWork(feed);
   if (!all.length) return null;
   const now = Date.now();
+  const shut = !v.workOpen.has(address);
+  const box = v_flex().id(`work-${address}`).relative().w_full().rounded(RADIUS).bg(t.front).border(1).border_color(t.border);
+  const fold = div().id(`work-fold-${address}`).absolute().top(4 + (WORK_ROW - 20) / 2).right(6).w(20).h(20).flex().items_center().justify_center()
+    .rounded(RADIUS).cursor_pointer().text_color(t.muted).hover((s) => s.text_color(t.foreground).bg(t.rowHover))
+    .on_click((_e, cx) => {
+      if (shut) v.workOpen.add(address);
+      else v.workOpen.delete(address);
+      cx.notify();
+    })
+    .child(icon(shut ? "sidebar-chevron-right" : "sidebar-chevron-down", 9));
+  if (shut) {
+    // "4 subagents running", or with more than one kind "18 background tasks running." and
+    // then "11 shells, 7 monitors".
+    const kinds = WORK_ORDER.map((type) => [type, all.filter((w) => w.type === type).length]).filter(([, n]) => n);
+    const many = ([type, n]) => `${n} ${WORK_LABEL[type].toLowerCase()}${n === 1 ? "" : "s"}`;
+    const head = kinds.length === 1 ? `${many(kinds[0])} running` : `${all.length} background tasks running.`;
+    const parts = kinds.length === 1 ? "" : kinds.map(many).join(", ");
+    const spin = all.some((w) => w.type === "subagent");
+    return box.py(4)
+      .child(h_flex().h(WORK_ROW).pl(10).pr(30).gap(8).items_center().text_size(12)
+        .child(div().flex_none().w(12).flex().justify_center().text_color(t.muted)
+          .child(spin ? svg(ICON_LOADER).size(11).flex_none().spin(900) : icon("square-terminal", 12)))
+        .child(div().flex_none().font_weight(500).text_color(t.foreground).child(head))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(parts)))
+      .child(fold);
+  }
   const tokens = (n) => (n ? `↓ ${n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n} tokens` : null);
-  return v_flex().id(`work-${address}`).w_full().py(4).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
-    .children(all.map((w) => {
+  const rows = all.map((w) => {
       const info = w.type === "subagent" ? feed.agents?.get(w.id) : null;
       const doing = w.type === "subagent" ? info?.doing ?? "Starting" : w.type === "loop" ? w.every ?? "" : w.detail ?? "";
       const facts = w.type === "loop"
@@ -962,13 +998,29 @@ function workList(t, address, feed) {
         : [w.at ? elapsed(now - w.at) : null, tokens(info?.tokens)].filter(Boolean).join(" · ");
       const mark = w.type === "monitor" ? icon("eye", 12) : w.type === "loop" ? icon("repeat", 12)
         : w.type === "command" ? icon("square-terminal", 12) : svg(ICON_LOADER).size(11).flex_none().spin(900);
-      return h_flex().id(`work-${w.id}`).h(26).px(10).gap(8).items_center().text_size(12)
+      return h_flex().id(`work-${w.id}`).flex_none().h(WORK_ROW).pl(10).pr(30).gap(8).items_center().text_size(12)
         .child(div().flex_none().w(12).flex().justify_center().text_color(t.muted).child(mark))
         .child(div().flex_none().w(58).text_size(11).text_color(t.muted).child(WORK_LABEL[w.type] ?? ""))
         .child(div().flex_none().max_w(280).truncate().font_weight(500).text_color(t.foreground).child(tidy(w.title) || w.type))
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).when(w.type === "command", (el) => el.font_family(MONO).text_size(11.5)).child(tidy(doing)))
         .child(div().flex_none().text_size(11.5).text_color(t.muted).child(facts));
-    }));
+  });
+  if (rows.length <= WORK_ROWS) return box.py(4).children(rows).child(fold);
+  // More than fit: a window on the rows that the wheel moves, over a fixed strip for the arrow.
+  const room = (rows.length - WORK_ROWS) * WORK_ROW;
+  const top = Math.min(room, v.workTop.get(address) ?? 0);
+  return box.pt(4)
+    .child(div().id(`work-rows-${address}`).relative().flex_none().h(WORK_ROWS * WORK_ROW).overflow_hidden()
+      .on_scroll_wheel((e, cx) => {
+        const next = Math.max(0, Math.min(room, top - e.delta.y));
+        if (next === top) return;
+        v.workTop.set(address, next);
+        cx.notify();
+      })
+      .child(v_flex().absolute().left(0).right(0).top(-top).children(rows)))
+    .child(h_flex().id(`work-more-${address}`).flex_none().h(WORK_EDGE).justify_center().items_center().text_color(t.muted)
+      .child(icon(top < room ? "sidebar-chevron-down" : "chevron-up", 9)))
+    .child(fold);
 }
 
 // A run of tool calls and reasoning: its chips in a row, and under them each open one's calls.
@@ -1294,7 +1346,7 @@ export function chat(v) {
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
   const body = [...said, ...empty, ...going, ...tail, ...(card ? [card] : [])];
-  const working = workList(t, address, feed);
+  const working = workList(v, t, address, feed);
   return frame
     .track_focus(v.chatFocus)
     .on_key_down((e, cx) => typeIntoComposer(v, address, e, cx))
