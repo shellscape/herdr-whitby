@@ -188,6 +188,10 @@ export const TERMINAL = "whitby.terminal";
 export const ASKING = "whitby.asking";
 export const askingOf = (address) => (address ? (shared(ASKING) ?? {})[address] ?? null : null);
 
+// The model each agent runs, as Whitby Chat reads it from the agent's session (address →
+// its name, as "Opus 5.5"), so the header can name it.
+export const MODEL = "whitby.model";
+
 // An agent's state with what Whitby Chat read: an unreported question is "needs".
 export const stateWithAsking = (status, address, live = true, report = null) =>
   (!status && live && askingOf(address)) || stateOf(status, live, report);

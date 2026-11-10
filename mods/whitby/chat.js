@@ -12,7 +12,7 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView } from "gpui-base";
 import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand } from "herdr";
-import { palette, alpha, icon, stateOf, reportOf, ASKING, STATE, TERMINAL } from "./kit.js";
+import { palette, alpha, icon, stateOf, reportOf, ASKING, MODEL, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
 import { readDialog, answerKeys, screenTail, readPalette, LINKS } from "./chat-screen.js";
@@ -257,6 +257,16 @@ function tick(v, cx) {
     cx.notify();
   }
   shareAsking(v);
+  shareModels(v);
+}
+
+// Shares the model each agent runs, as its session says (see kit.js MODEL), for the
+// header. Writes only when that changes.
+function shareModels(v) {
+  const models = {};
+  for (const [address, feed] of v.feeds) if (feed.model) models[address] = feed.model;
+  const key = (m) => JSON.stringify(Object.entries(m).sort());
+  if (key(models) !== key(shared(MODEL) ?? {})) setShared(MODEL, models);
 }
 
 // Shares the agents asking something they haven't reported to herdr (see kit.js ASKING), so

@@ -211,6 +211,15 @@ function endTool(feed, id, status, output) {
   if (text) item.output = clip(text);
 }
 
+// A Claude model's name as Claude Code shows it: claude-opus-5-5 is "Opus 5.5" (and the
+// older claude-3-5-sonnet-20241022 "Sonnet 3.5"). Any other id stays as it is.
+function claudeModel(id) {
+  const m = id.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/);
+  const old = id.match(/^claude-(\d+)(?:-(\d{1,2}))?-(opus|sonnet|haiku)(?:-\d{8})?$/);
+  const [family, major, minor] = m ? [m[1], m[2], m[3]] : old ? [old[3], old[1], old[2]] : [];
+  return family ? `${family[0].toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}` : id;
+}
+
 // What Claude Code files under a user turn that the person didn't type.
 const CLAUDE_HIDDEN = /^<(local-command-[a-z]+|system-reminder|bash-stdout|bash-stderr|command-message|command-args)>/;
 
@@ -309,6 +318,9 @@ export const KINDS = {
         return;
       }
       if (e.type === "user") {
+        // /model says what it switched to before the next reply does.
+        const set = typeof content === "string" && content.match(/^<local-command-stdout>Set model to `([^`]+)`/);
+        if (set) feed.model = set[1];
         // The summary Claude Code starts a compacted conversation with is its own, not yours.
         if (e.isCompactSummary) return void push(feed, { kind: "note", text: "Context compacted" });
         if (typeof content === "string") { if (!e.isMeta) claudeUser(feed, content, at); return; }
@@ -336,6 +348,9 @@ export const KINDS = {
           }
         }
       } else if (e.type === "assistant") {
+        // The model that wrote it (Claude Code's own messages, as an error, say "<synthetic>").
+        const model = e.message?.model;
+        if (model && model !== "<synthetic>") feed.model = claudeModel(model);
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && b.text?.trim()) push(feed, { kind: "text", text: b.text });
           else if (b.type === "thinking" && b.thinking?.trim()) push(feed, { kind: "thinking", text: b.thinking });
@@ -391,6 +406,8 @@ export const KINDS = {
       const at = e.timestamp ? e.timestamp * 1000 : null;
       switch (u.sessionUpdate) {
         case "user_message_chunk": {
+          // The model it answers your message with.
+          if (u._meta?.modelId) feed.model = u._meta.modelId;
           const note = grokNote(u.content?.text ?? "");
           if (note === undefined) append(feed, "user", u.content?.text, at);
           else if (note) push(feed, { kind: "note", text: note });
@@ -475,7 +492,7 @@ export const KINDS = {
     glyph: ICON("codex"),
     tint: (t) => t.blue,
     is: (p) => p?.program?.key === "codex" || /^codex/.test(p?.app ?? ""),
-    wanted: (line) => line.includes('"item_completed"') || line.includes('"turn_aborted"'),
+    wanted: (line) => line.includes('"item_completed"') || line.includes('"turn_aborted"') || line.includes('"turn_context"'),
     // Codex writes ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and its first
     // line names the folder. A terminal's session is the newest rollout for its folder
     // that started after the terminal did. (Two Codex terminals in one folder can't be
@@ -514,6 +531,8 @@ export const KINDS = {
     },
     parse(e, feed) {
       const p = e.payload;
+      // Each turn starts by naming the model it runs.
+      if (e.type === "turn_context" && p?.model) return void (feed.model = p.model);
       if (e.type !== "event_msg" || !p) return;
       if (p.type === "turn_aborted") return void push(feed, { kind: "note", text: "Stopped" });
       if (p.type !== "item_completed" || !p.item) return;
