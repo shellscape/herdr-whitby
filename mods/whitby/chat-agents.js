@@ -305,6 +305,8 @@ export const KINDS = {
         return;
       }
       if (e.type === "user") {
+        // The summary Claude Code starts a compacted conversation with is its own, not yours.
+        if (e.isCompactSummary) return void push(feed, { kind: "note", text: "Context compacted" });
         if (typeof content === "string") { if (!e.isMeta) claudeUser(feed, content, at); return; }
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && !e.isMeta) claudeUser(feed, b.text, at);
