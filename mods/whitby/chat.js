@@ -330,6 +330,19 @@ function answer(v, address, dialog, to, cx) {
   });
 }
 
+// Keeps a question that's counting down to going on without you ("any key to stay"): F12,
+// a key Claude Code takes as you being there and never types into a field.
+function stay(v, address, cx) {
+  if (v.answering.has(address)) return;
+  v.answering.add(address);
+  cx.notify();
+  cx.spawn(async (cx) => {
+    await hc(["keys", address, "f12"]).catch(() => {});
+    v.answering.delete(address);
+    cx.notify();
+  });
+}
+
 // Presses keys in the agent's terminal for a question the chat can't read as a menu.
 function press(v, address, keys, cx) {
   if (v.answering.has(address)) return;
@@ -1105,6 +1118,7 @@ function loading(t, text) {
 // What the agent is asking, as a card above the reply box: its question, a button for
 // each option (the one under its cursor marked), and Cancel when Esc cancels. A pill in
 // the sidebar's state color says it's waiting. Once answered, it waits for the prompt to go.
+// A question counting down to going on without you says so, with Stay (its "any key").
 function dialogCard(v, t, address, name, dialog, status) {
   const sent = v.answered.get(address)?.key === promptKey(dialog);
   const busy = v.answering.has(address) || sent;
@@ -1112,8 +1126,14 @@ function dialogCard(v, t, address, name, dialog, status) {
   // The sidebar's state: red "Blocked" for an approval, purple "Needs you" for the rest.
   const state = status === "blocked" ? stateOf("blocked", true, reportOf(address)) : "needs";
   const pillColor = t.word[state] ?? t.word.needs;
+  const auto = !sent && dialog.auto != null;
   const note = sent ? "Answer sent. Waiting for the agent."
-    : v.changed.has(address) ? "It changed on screen. Here is what it shows now." : null;
+    : v.changed.has(address) ? "It changed on screen. Here is what it shows now."
+    : auto ? `Auto-continues in ${dialog.auto}s.` : null;
+  const button = (id, label, onClick) => div().id(`ask-${address}-${id}`).flex_none().px(8).py(3).rounded(RADIUS).text_size(12).text_color(t.muted)
+    .opacity(busy ? 0.6 : 1)
+    .when(!busy, (b) => b.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick))
+    .child(label);
   return v_flex().id(`ask-${address}`).w_full().px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
     .child(h_flex().gap(8).items_start()
       .child(div().flex_1().min_w(0).text_size(13.5).font_weight(600).text_color(t.foreground).child(inline(t, `ask-${address}-title`, title, { lineHeight: 19 })))
@@ -1132,10 +1152,8 @@ function dialogCard(v, t, address, name, dialog, status) {
         .when(o.free, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Then type your answer below.")))))))
     .when(Boolean(note) || dialog.esc, (el) => el.child(h_flex().gap(8).items_center()
       .child(div().flex_1().min_w(0).text_size(12).text_color(t.muted).child(note ?? ""))
-      .when(dialog.esc, (row) => row.child(div().id(`ask-${address}-esc`).flex_none().px(8).py(3).rounded(RADIUS).text_size(12).text_color(t.muted)
-        .opacity(busy ? 0.6 : 1)
-        .when(!busy, (b) => b.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => answer(v, address, dialog, "esc", cx)))
-        .child("Cancel")))));
+      .when(auto, (row) => row.child(button("stay", "Stay", (_e, cx) => stay(v, address, cx))))
+      .when(dialog.esc, (row) => row.child(button("esc", "Cancel", (_e, cx) => answer(v, address, dialog, "esc", cx))))));
 }
 
 // A question the chat can't read as a menu (a yes/no line, a field): the agent's last

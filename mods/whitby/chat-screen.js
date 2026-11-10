@@ -3,9 +3,10 @@
 // (❯ or ›), and a footer naming the keys ("Enter to confirm · Esc to cancel"). Claude Code's
 // folder trust and its questions, and Codex's approvals and update offer, all look so.
 //
-//   readDialog(screen) → { question, options: [{ label, detail, free }], selected, esc } | null
+//   readDialog(screen) → { question, options: [{ label, detail, free }], selected, esc, auto } | null
 //
-// `free`: an option that opens a field to type in ("Type something."). Answering moves the
+// `free`: an option that opens a field to type in ("Type something."). `auto`: the seconds
+// left before the agent goes on without your answer, while it counts down, else null. Answering moves the
 // cursor with the arrow keys and presses Enter (answerKeys), never the option's number:
 // Codex can read a number as a different answer.
 
@@ -19,6 +20,9 @@ const RULE = /^\s*[─━═—–-]{6,}\s*$/;
 // bullets and your echoed message.
 const TRANSCRIPT = /^\s*[•⏺❯›>⎿]/;
 const FREE = /^(type something|other)\b/i;
+// Claude Code's questions can go on without you (its askUserQuestionTimeout setting): in
+// their last seconds a line under them counts down ("auto-continue in 12s · any key to stay").
+const AUTO = /\bauto-continue in (\d+)s\b/i;
 
 // Box borders become spaces, so columns still line up.
 const clean = (line) => line.replace(/[│┃╭╮╰╯]/g, " ").replace(/\s+$/, "");
@@ -95,7 +99,8 @@ export function readDialog(screen) {
     if (prev && !prev.gapBelow && prev.text.length >= 60 && !/[.:?!]$/.test(prev.text)) question[question.length - 1] += ` ${line.text}`;
     else question.push(line.text);
   });
-  return { question: question.join("\n"), options, selected, esc: /\besc\b/i.test(lines[foot]) };
+  const auto = lines.slice(foot + 1).map((line) => line.match(AUTO)).find(Boolean);
+  return { question: question.join("\n"), options, selected, esc: /\besc\b/i.test(lines[foot]), auto: auto ? Number(auto[1]) : null };
 }
 
 // Words in agents' dialogs that are links in their terminal: the screen keeps the words
