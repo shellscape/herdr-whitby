@@ -230,10 +230,14 @@ function claudeUser(feed, text, at) {
   if (bash) return void push(feed, { kind: "user", text: `! ${bash[1]}`, at });
   // A background task finishing (a subagent, or a command sent to the background): Claude
   // Code tells the agent, not you. Its call ends here, with its result, and a note says so.
+  // A subagent that stopped with work of its own still going isn't done: Claude Code tells
+  // again when it is, by its task id only.
   if (/^<task-notification>/.test(s)) {
     const tag = (name) => s.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim();
+    if (/ is waiting on its own background work$/.test(tag("summary") ?? "")) return;
     const status = tag("status");
-    endTool(feed, tag("tool-use-id"), status === "failed" ? "failed" : status === "killed" ? "stopped" : "done", tag("result") ?? tag("summary"));
+    const id = tag("tool-use-id") ?? feed.tasks?.get(tag("task-id"));
+    endTool(feed, id, status === "failed" ? "failed" : status === "killed" ? "stopped" : "done", tag("result") ?? tag("summary"));
     return void push(feed, { kind: "note", text: tag("summary") || "Background task finished" });
   }
   if (/^\[Request interrupted by user/.test(s)) return void push(feed, { kind: "note", text: "Stopped" });
