@@ -812,8 +812,40 @@ function userMessage(t, it, faded, caption, action) {
 function asMarkdown(text) {
   return text.split("\n").map((line) => {
     const indent = line.match(/^ */)[0];
-    return "\u00a0".repeat(indent.length) + line.slice(indent.length).replace(/[\\`*_{}[\]()#+\-.!|<>~/:]/g, "\\$&");
+    return "\u00a0".repeat(indent.length) + literal(line.slice(indent.length));
   }).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
+}
+
+const literal = (s) => s.replace(/[\\`*_{}[\]()#+\-.!|<>~/:]/g, "\\$&");
+
+// Text the chat draws itself (an agent's question) that you can select and copy: what's in
+// it picked out as inline shows it, web addresses and known link words (LINKS) as links and
+// paths as inline code, the rest as written (see asMarkdown).
+function copyable(id, text) {
+  const word = (w) => {
+    const trail = w.match(TRAIL)?.[0] ?? "";
+    const core = trail ? w.slice(0, -trail.length) : w;
+    if (URL.test(core)) return `[${literal(core)}](<${core}>)${literal(trail)}`;
+    if (PATH.test(core) && !core.includes("`")) return `\`${core}\`${literal(trail)}`;
+    return literal(w);
+  };
+  const md = text.split("\n").map((line) => {
+    const whole = LINKS[line.trim()];
+    if (whole) return `[${literal(line.trim())}](<${whole}>)`;
+    const indent = line.match(/^ */)[0];
+    return "\u00a0".repeat(indent.length) + line.slice(indent.length).split(/(\s+)/).map((w, i) => (i % 2 ? w : word(w))).join("");
+  }).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
+  return TextView.markdown(id, md).selectable(true);
+}
+
+// A terminal's lines to select and copy, in its columns: every run of spaces kept (one
+// space of each, so a long line still wraps there).
+function screenText(id, text) {
+  const md = text.split("\n").map((line) => {
+    const indent = line.match(/^ */)[0];
+    return "\u00a0".repeat(indent.length) + literal(line.slice(indent.length)).replace(/ {2,}/g, (run) => `${"\u00a0".repeat(run.length - 1)} `);
+  }).join("\n").replace(/([^\n])\n(?=[^\n])/g, "$1  \n");
+  return TextView.markdown(id, md).selectable(true);
 }
 
 // The agent's replies: markdown in a grey bubble, on the left.
@@ -1115,9 +1147,9 @@ function loading(t, text) {
     .child(div().child(text));
 }
 
-// What the agent is asking, as a card above the reply box: its question, a button for
-// each option (the one under its cursor marked), and Cancel when Esc cancels. A pill in
-// the sidebar's state color says it's waiting. Once answered, it waits for the prompt to go.
+// What the agent is asking, as a card above the reply box: its question (text you can
+// select and copy), a button for each option (the one under its cursor marked), and Cancel
+// when Esc cancels. A pill in the sidebar's state color says it's waiting. Once answered, it waits for the prompt to go.
 // A question counting down to going on without you says so, with Stay (its "any key").
 function dialogCard(v, t, address, name, dialog, status) {
   const sent = v.answered.get(address)?.key === promptKey(dialog);
@@ -1136,13 +1168,14 @@ function dialogCard(v, t, address, name, dialog, status) {
     .child(label);
   return v_flex().id(`ask-${address}`).w_full().px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
     .child(h_flex().gap(8).items_start()
-      .child(div().flex_1().min_w(0).text_size(13.5).font_weight(600).text_color(t.foreground).child(inline(t, `ask-${address}-title`, title, { lineHeight: 19 })))
+      .child(div().flex_1().min_w(0).text_size(13.5).font_weight(600).text_color(t.foreground)
+        .child(copyable(`ask-${address}-title`, title).font_weight(600).line_height("19px")))
       .child(h_flex().flex_none().gap(5).items_center().px(8).py(2).rounded(RADIUS).bg(alpha(pillColor, 0.12))
         .text_size(11).font_weight(500).text_color(pillColor)
         .child(div().size(6).rounded_full().bg(pillColor).loop("opacity", { from: 0.35, to: 1, period: 1600, easing: "ease-in-out" }))
         .child(div().child(STATE[state]))))
     .when(rest.length > 0, (el) => el.child(div().text_size(12.5).line_height("18px").text_color(t.muted)
-      .child(inline(t, `ask-${address}-q`, rest.join("\n"), { codeSize: 11.5, lineHeight: 18 }))))
+      .child(copyable(`ask-${address}-q`, rest.join("\n")).line_height("18px"))))
     .child(v_flex().gap(6).opacity(busy ? 0.6 : 1).children(dialog.options.map((o, i) => h_flex().id(`ask-${address}-${i}`).px(12).py(8).gap(10).items_start().rounded(RADIUS)
       .border(1).border_color(i === dialog.selected ? alpha(t.blue, 0.55) : t.border)
       .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => answer(v, address, dialog, i, cx)))
@@ -1157,7 +1190,8 @@ function dialogCard(v, t, address, name, dialog, status) {
 }
 
 // A question the chat can't read as a menu (a yes/no line, a field): the agent's last
-// lines, its arrow, Enter and Esc keys, and the composer types your answer into it.
+// lines (to select and copy), its arrow, Enter and Esc keys, and the composer types your
+// answer into it.
 function screenCard(v, t, address, name, tail) {
   const busy = v.answering.has(address);
   const key = (label, keys) => div().id(`key-${address}-${label}`).px(10).py(4).rounded(RADIUS).border(1).border_color(t.border)
@@ -1167,7 +1201,8 @@ function screenCard(v, t, address, name, tail) {
   return v_flex().id(`asking-${address}`).w_full().px(14).py(12).gap(10).rounded(RADIUS).bg(t.front).border(1).border_color(t.border)
     .child(div().text_size(13.5).font_weight(600).text_color(t.foreground).child(`${name} is waiting for an answer`))
     .when(Boolean(tail), (el) => el.child(div().px(8).py(6).rounded(RADIUS).bg(t.canvas).border(1).border_color(t.border)
-      .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted).child(tail)))
+      .font_family(MONO).text_size(11).line_height("16px").text_color(t.muted)
+      .child(screenText(`asking-${address}-tail`, tail).font_family(MONO).line_height("16px"))))
     .child(h_flex().gap(6).items_center()
       .child(key("↑", ["up"])).child(key("↓", ["down"])).child(key("Enter", ["enter"])).child(key("Esc", ["esc"]))
       .child(div().ml(6).text_size(11.5).text_color(t.muted).child("or type your answer below")));
