@@ -183,3 +183,12 @@ export function readQueue(screen) {
   }
   return { count: Number(head[2]), folded: head[1] === "▸", rows };
 }
+
+// An agent compacting its context says so on its status line, the one its spinner leads,
+// just over its input box: Claude Code "✶ Compacting conversation… (12s · ↓ 7 tokens)",
+// Codex "• Compacting context (3s • esc to interrupt)". `line`: the agent's (KINDS has it).
+//
+//   isCompacting(screen, line) → boolean
+export function isCompacting(screen, line) {
+  return (screen ?? "").split("\n").filter((l) => l.trim() && !l.startsWith("[hc]")).slice(-30).some((l) => line.test(l));
+}

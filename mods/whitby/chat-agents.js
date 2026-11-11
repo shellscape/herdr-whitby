@@ -260,7 +260,7 @@ export function fromAgent(s) {
 }
 
 // The Grok updates the chat shows; the rest (commands, plans, memory) aren't parsed.
-const GROK_WANTED = /"sessionUpdate":"(user_message_chunk|agent_message_chunk|agent_thought_chunk|tool_call|tool_call_update|turn_completed|auto_compact_completed|subagent_spawned|subagent_finished|task_backgrounded|task_completed|background_tasks|scheduled_task_created|scheduled_task_deleted)"/;
+const GROK_WANTED = /"sessionUpdate":"(user_message_chunk|agent_message_chunk|agent_thought_chunk|tool_call|tool_call_update|turn_completed|auto_compact_started|auto_compact_completed|auto_compact_failed|auto_compact_cancelled|subagent_spawned|subagent_finished|task_backgrounded|task_completed|background_tasks|scheduled_task_created|scheduled_task_deleted)"/;
 
 export const KINDS = {
   claude: {
@@ -272,6 +272,10 @@ export const KINDS = {
     wanted: (line) => line.includes('"type":"user"') || line.includes('"type":"assistant"') || line.includes('"type":"queued_command"'),
     // What takes the messages it holds while at work in at once: Claude Code's "send now".
     sendNow: ["ctrl+enter"],
+    // While it compacts the conversation (for /compact, when it's full, or on its own while
+    // idle before the prompt cache expires), its status line says so. Its transcript says
+    // nothing until it's done.
+    compacting: /^[^\s⏺❯]\s+Compacting conversation… \(\d[^)]*\)\s*$/,
     // The session's transcript: ~/.claude/projects/<folder, non-alphanumerics as "-">/<session>.jsonl.
     async find(info) {
       return newest('"$HOME"/.claude/projects/*/"$1".jsonl', (await claudeSession(info))?.sessionId);
@@ -480,7 +484,10 @@ export const KINDS = {
           if (u.stop_reason === "cancelled") push(feed, { kind: "note", text: "Stopped" });
           return;
         }
-        case "auto_compact_completed": push(feed, { kind: "note", text: "Context compacted" }); return;
+        // While it compacts the conversation, the chat says so (feed.compacting).
+        case "auto_compact_started": feed.compacting = true; return;
+        case "auto_compact_failed": case "auto_compact_cancelled": feed.compacting = false; return;
+        case "auto_compact_completed": feed.compacting = false; push(feed, { kind: "note", text: "Context compacted" }); return;
       }
     },
   },
@@ -492,6 +499,9 @@ export const KINDS = {
     tint: (t) => t.blue,
     is: (p) => p?.program?.key === "codex" || /^codex/.test(p?.app ?? ""),
     wanted: (line) => line.includes('"item_completed"') || line.includes('"turn_aborted"') || line.includes('"turn_context"'),
+    // While it compacts the conversation, its status line says so. Its rollout says nothing
+    // until it's done.
+    compacting: /^•\s+Compacting context \(\d[^)]*\)\s*$/,
     // Codex writes ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and its first
     // line names the folder. A terminal's session is the newest rollout for its folder
     // that started after the terminal did. (Two Codex terminals in one folder can't be

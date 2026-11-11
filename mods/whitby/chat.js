@@ -15,7 +15,7 @@ import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFold
 import { palette, alpha, icon, stateOf, reportOf, ASKING, MODEL, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
-import { readDialog, answerKeys, screenTail, readPalette, readQueue, LINKS } from "./chat-screen.js";
+import { readDialog, answerKeys, screenTail, readPalette, readQueue, isCompacting, LINKS } from "./chat-screen.js";
 
 const MONO = "Geist Mono";
 // Whitby's corners: 4px on bubbles, cards and controls (only status dots are round).
@@ -42,6 +42,9 @@ const SCREEN = 500, SCREEN_BACKGROUND = 2000;
 // How often the shown agent's queue is read off its screen (Grok's): at work, else; and how
 // long after opening it there (it was folded) before trying again.
 const QUEUE_READ = 500, QUEUE_IDLE = 2000, QUEUE_OPEN = 5000;
+// How often the shown agent's status line is read while it works, for whether it's
+// compacting its context (see KINDS' compacting).
+const COMPACT_READ = 1000;
 // How long an answered prompt's card waits for its agent to report back.
 const ANSWER_HOLD = 20_000;
 
@@ -160,6 +163,8 @@ export function initChat(v, cx) {
   v.agentQueues = new Map();
   v.queueShut = new Set();
   v.pushing = new Map();
+  // Agents at work that their status line says are compacting their context, by address.
+  v.compacting = new Map();
   v.lift = 0;
   v.viewH = 0;
   v.contentH = 0;
@@ -197,7 +202,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, startedAt: 0, stale: null, freshAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false };
+  return { kind, path: null, startedAt: 0, stale: null, freshAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false, compacting: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -237,6 +242,11 @@ function tick(v, cx) {
     if (front && a.address === shown && KINDS[a.kind].queue) {
       const q = v.agentQueues.get(a.address);
       if (!q?.reading && now - (q?.readAt ?? 0) >= (a.p.status === "working" ? QUEUE_READ : QUEUE_IDLE)) readAgentQueue(v, a.address, cx);
+    }
+    if (a.p.status !== "working") v.compacting.delete(a.address);
+    else if (front && a.address === shown && KINDS[a.kind].compacting) {
+      const c = v.compacting.get(a.address);
+      if (!c?.reading && now - (c?.readAt ?? 0) >= COMPACT_READ) readCompacting(v, a.address, a.kind, cx);
     }
     // Behind other windows, only a first load: the rest waits until you come back.
     if (!front && feed.loaded) continue;
@@ -331,6 +341,18 @@ function readAgentQueue(v, address, cx) {
     v.agentQueues.set(address, next);
     const key = (x) => JSON.stringify([x?.count ?? 0, x?.rows ?? []]);
     if (key(before) !== key(next) && chatTarget()?.address === address) cx.notify();
+  });
+}
+
+// Reads the status line of an agent at work, for whether it's compacting its context.
+function readCompacting(v, address, kind, cx) {
+  const before = v.compacting.get(address);
+  v.compacting.set(address, { ...before, reading: true });
+  cx.spawn(async (cx) => {
+    const r = await hc(["read", address]).catch(() => ({ code: 1, stdout: "" }));
+    const on = r.code === 0 && isCompacting(r.stdout, KINDS[kind].compacting);
+    v.compacting.set(address, { on, readAt: Date.now(), reading: false });
+    if (Boolean(before?.on) !== on && chatTarget()?.address === address) cx.notify();
   });
 }
 
@@ -1506,7 +1528,8 @@ export function chat(v) {
   const going = outgoing(v, t, address, feed, target.ready, name, target.kind);
   // The chat stays put whatever the agent does. Below the conversation: a spinner while the
   // agent starts or its session loads, a line when it waits on its terminal (a question or
-  // an approval), the dots while it answers. An agent at work before anyone has said
+  // an approval), the dots while it answers (a spinner while it compacts its context:
+  // Claude Code does that on its own, even idle). An agent at work before anyone has said
   // anything to it is still starting (Codex reports working while it sets up).
   // Anything said or done (or earlier messages the chat didn't load) means it has started.
   const asked = Boolean(going.length) || Boolean(feed?.cut) || Boolean(feed?.items.some((it) => it.kind === "user" || it.kind === "text" || it.kind === "tool"));
@@ -1524,7 +1547,7 @@ export function chat(v) {
   const tail = card ? []
     : starting || p.status === "blocked" ? [loading(t, starting ? `Starting ${name}…` : `${name} is asking something…`)]
     : !feed?.loaded ? [loading(t, "Loading the conversation…")]
-    : p.status === "working" ? [typing(t)] : [];
+    : p.status === "working" ? [feed?.compacting || v.compacting.get(address)?.on ? loading(t, "Compacting context…") : typing(t)] : [];
   const quiet = feed?.loaded && !said.length && !going.length && !tail.length && !card;
   const empty = quiet ? [h_flex().w_full().justify_center().pt(40).text_size(12.5).text_color(t.muted)
     .child(feed.path ? "Nothing said yet." : `No conversation yet. Send ${name} a message.`)] : [];
