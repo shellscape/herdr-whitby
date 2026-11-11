@@ -340,9 +340,13 @@ export const KINDS = {
         return;
       }
       if (e.type === "user") {
-        // /model says what it switched to before the next reply does.
+        // /model says what it switched to before the next reply does (and its effort, "with
+        // `xhigh` effort", when that changes), and /effort the effort it set ("Set effort level
+        // to high (this session only): …"; auto is the model's own, which the next reply says).
         const set = typeof content === "string" && content.match(/^<local-command-stdout>Set model to `([^`]+)`/);
         if (set) feed.model = set[1];
+        const effort = typeof content === "string" && content.match(/^<local-command-stdout>(?:Set model to .* (?:with|·) `(\w+)` effort|Set effort level to (\w+)|Effort (?:level )?set to auto)/);
+        if (effort) feed.effort = effort[1] ?? effort[2] ?? null;
         // The summary Claude Code starts a compacted conversation with is its own, not yours.
         if (e.isCompactSummary) return void push(feed, { kind: "note", text: "Context compacted" });
         if (typeof content === "string") { if (!e.isMeta) claudeUser(feed, content, at); return; }
@@ -373,6 +377,8 @@ export const KINDS = {
         // The model that wrote it (Claude Code's own messages, as an error, say "<synthetic>").
         const model = e.message?.model;
         if (model && model !== "<synthetic>") feed.model = claudeModel(model);
+        // And the effort it ran at.
+        if (e.effort ?? e.perTurnEffort) feed.effort = e.effort ?? e.perTurnEffort;
         for (const b of Array.isArray(content) ? content : []) {
           if (b.type === "text" && b.text?.trim()) push(feed, { kind: "text", text: b.text });
           else if (b.type === "thinking" && b.thinking?.trim()) push(feed, { kind: "thinking", text: b.thinking });
@@ -421,6 +427,12 @@ export const KINDS = {
     },
     session: (path) => path?.split("/").slice(-2, -1)[0],
     resume: (id) => ["grok", ...(id ? ["--resume", id] : [])],
+    // Its reasoning effort (set with /effort or /model) isn't in updates.jsonl: the
+    // session's summary.json, beside it, has it.
+    async effort(path) {
+      const s = JSON.parse((await readTextFile(path.replace(/updates\.jsonl$/, "summary.json"))) ?? "null");
+      return s?.reasoning_effort ?? null;
+    },
     parse(e, feed) {
       const u = e.params?.update;
       if (!u) return;
@@ -568,8 +580,8 @@ export const KINDS = {
     },
     parse(e, feed) {
       const p = e.payload;
-      // Each turn starts by naming the model it runs.
-      if (e.type === "turn_context" && p?.model) return void (feed.model = p.model);
+      // Each turn starts by naming the model it runs, and its reasoning effort.
+      if (e.type === "turn_context" && p?.model) return void Object.assign(feed, { model: p.model, effort: p.effort ?? null });
       if (e.type !== "event_msg" || !p) return;
       if (p.type === "turn_aborted") return void push(feed, { kind: "note", text: "Stopped" });
       if (p.type !== "item_completed" || !p.item) return;

@@ -12,7 +12,7 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, TextView } from "gpui-base";
 import { hc, exec, home, layout, run, notify, window, terminals, panes, pickFolder, shared, setShared, nextCommand } from "herdr";
-import { palette, alpha, icon, stateOf, reportOf, ASKING, MODEL, STATE, TERMINAL } from "./kit.js";
+import { palette, alpha, icon, stateOf, reportOf, ASKING, MODEL, EFFORT, STATE, TERMINAL } from "./kit.js";
 import { current, shownIn } from "./header.js";
 import { KINDS, kindOf, unlisted, fromAgent } from "./chat-agents.js";
 import { readDialog, answerKeys, screenTail, readPalette, readQueue, isCompacting, LINKS } from "./chat-screen.js";
@@ -32,6 +32,9 @@ const TAIL = 1_500_000, KEEP = 400;
 const TICK = 200, SHOWN = 600, BACKGROUND = 4000, REFIND = 10_000;
 // How often the shown agent's subagents at work are read (see KINDS.claude.subagents).
 const SUBAGENTS = 2000;
+// How often an agent's reasoning effort is read, where its session file doesn't say it
+// (see KINDS.grok.effort).
+const EFFORT_READ = 2000;
 // How often the agent's slash-command menu is read again while it shows (see syncSlash).
 const SLASH_READ = 300;
 // How long after a chip opens or closes the chat holds what's on screen (see viewport).
@@ -202,7 +205,7 @@ function bytes(s) {
 }
 
 function newFeed(kind) {
-  return { kind, path: null, startedAt: 0, stale: null, freshAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, reading: false, loaded: false, cut: false, compacting: false };
+  return { kind, path: null, startedAt: 0, stale: null, freshAt: 0, foundAt: 0, readAt: 0, offset: 0, items: [], tools: new Map(), work: new Map(), agents: new Map(), agentsAt: 0, effortAt: 0, reading: false, loaded: false, cut: false, compacting: false };
 }
 
 // Every chat agent in the window: each pane's, and a sub-agent shown in one.
@@ -282,13 +285,17 @@ function tick(v, cx) {
   shareModels(v);
 }
 
-// Shares the model each agent runs, as its session says (see kit.js MODEL), for the
-// header. Writes only when that changes.
+// Shares the model each agent runs and its reasoning effort, as its session says (see kit.js
+// MODEL and EFFORT), for the header. Writes only when that changes.
 function shareModels(v) {
-  const models = {};
-  for (const [address, feed] of v.feeds) if (feed.model) models[address] = feed.model;
+  const models = {}, efforts = {};
+  for (const [address, feed] of v.feeds) {
+    if (feed.model) models[address] = feed.model;
+    if (feed.effort) efforts[address] = feed.effort;
+  }
   const key = (m) => JSON.stringify(Object.entries(m).sort());
   if (key(models) !== key(shared(MODEL) ?? {})) setShared(MODEL, models);
+  if (key(efforts) !== key(shared(EFFORT) ?? {})) setShared(EFFORT, efforts);
 }
 
 // Shares the agents asking something they haven't reported to herdr (see kit.js ASKING), so
@@ -446,6 +453,11 @@ function refresh(v, feed, address, cx) {
         for (const [id, info] of found ?? []) feed.agents.set(id, info);
         feed.agentsAt = Date.now();
         changed = true;
+      }
+      const effort = KINDS[feed.kind].effort;
+      if (effort && feed.path && Date.now() - feed.effortAt >= EFFORT_READ) {
+        feed.effort = await effort(feed.path).catch(() => feed.effort);
+        feed.effortAt = Date.now();
       }
     } catch (err) {
       console.log(`whitby chat: ${address}: ${err}`);

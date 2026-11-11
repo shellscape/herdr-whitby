@@ -1,11 +1,11 @@
 // Whitby's agent page header (src/ui/mod.rs agent header): the agent's name, then
-// "tool  ·  state" under it (in Whitby Chat, "tool  ·  model  ·  state"), and actions on the right in Whitby's lifecycle style
+// "tool  ·  state" under it (in Whitby Chat, "tool  ·  model  ·  effort  ·  state"), and actions on the right in Whitby's lifecycle style
 // (13px icon, 11px label, muted until hovered). The actions are herdr's pane ones.
 
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { panes, terminals, focused, spaces, run, window, props, layout, shared, setShared } from "herdr";
-import { palette, icon, lead, paneTitle, tabTitle, childTitle, folder, stateOf, reportOf, askingOf, STATE, TERMINAL, MODEL } from "./kit.js";
+import { palette, icon, lead, paneTitle, tabTitle, childTitle, folder, stateOf, reportOf, askingOf, STATE, TERMINAL, MODEL, EFFORT } from "./kit.js";
 import { KINDS, kindOf, unlisted } from "./chat-agents.js";
 
 function find(node, id) {
@@ -103,13 +103,15 @@ export function header() {
   }
   // A tab that has just opened, before anything says what it runs: blank, not "Shell".
   if (props()?.icon && !k && unlisted(p)) { name = ""; tool = ""; state = null; }
-  // In Whitby Chat, the model the agent runs, as the chat reads it from its session.
+  // In Whitby Chat, the model the agent runs and its reasoning effort, as the chat reads them
+  // from its session.
   const model = props()?.icon && state ? (shared(MODEL) ?? {})[shown.terminal] : null;
+  const effort = props()?.icon && state ? (shared(EFFORT) ?? {})[shown.terminal] : null;
   return frame
     .children(props()?.icon ? agentIcon(t, shown) : [])
     .child(v_flex().flex_1().min_w(0)
       .child(div().truncate().text_size(15).font_weight(600).text_color(t.foreground).child(name))
-      .child(div().mt(4).truncate().text_size(11).text_color(t.muted).child(state ? [tool, model, state].filter(Boolean).join("  ·  ") : tool)))
+      .child(div().mt(4).truncate().text_size(11).text_color(t.muted).child(state ? [tool, model, effort && `${effort} effort`, state].filter(Boolean).join("  ·  ") : tool)))
     .child(action(t, "head-split", "mods/pane/split-right.svg", "Split", () => split(p)))
     .when(several, (el) => el.child(action(t, "head-zoom", p.zoomed ? "minimize-2" : "maximize-2", p.zoomed ? "Unzoom" : "Zoom", "pane.zoom", { pane: p.pane })))
     // Closing a shown sub-agent goes back to the pane's own terminal, never closes the parent's pane.
