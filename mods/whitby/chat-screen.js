@@ -127,8 +127,9 @@ export function screenTail(screen, count = 12) {
 // just above their input (Claude Code and Grok across a rule, Grok's input in a box, Codex's
 // with blank lines between). A row is a name, an alias in brackets (Claude Code's) and what
 // it does, two spaces on (one after a name cut short with "…", Grok's); what it does can run
-// on in lines indented under it. Empty when no menu shows.
-const PROMPT = /^\s*(?:│\s*)?[❯»]\s+\/\S*$/;
+// on in lines indented under it. Empty when no menu shows. The input starts with a prompt
+// mark: Claude Code's and Grok's "❯", Codex's "»" or "›" (also the mark of its picked row).
+const PROMPT = /^\s*(?:│\s*)?[❯»›]\s+\/\S*$/;
 const EDGE = /^[\s─╭╮╰╯│]*$/;
 const ROW = /^\s*([❯›])?\s*(\/\S*…(?=\s)|\/\S+(?:\s\([^)]*\))?(?=\s{2}))\s+(\S.*)$/;
 const MORE = /^\s{8,}\S/;
