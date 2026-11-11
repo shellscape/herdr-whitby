@@ -55,8 +55,9 @@ Version 0.1.0.
 - **Projects page.** With no spaces open, the work area shows a Projects page. Its Add project
   row opens a folder picker, and it lists your Herdr shortcuts.
 - **Small touches.** The title bar reads "Herdr: Whitby - project - agent". Hovering a project
-  header shows Reveal in Finder. The rail buttons and the bell fade on hover. Light and dark
-  themes follow your system appearance.
+  header shows Reveal in Finder. The rail buttons and the bell fade on hover. Notifications
+  have an X that dismisses them without going to the agent. Light and dark themes follow your
+  system appearance.
 
 ## Install
 
@@ -167,7 +168,7 @@ layouts/whitby.svg    the picture Herdr's settings show for the layout
 layouts/whitby-chat.* Whitby Chat: whitby.json with the agent page's terminal in a stack with the chat
 themes/               the light and dark themes: Whitby's palette and terminal colors
 mods/whitby/          one mod; props.part picks what each block draws
-  main.js             picks the part: titlebar, rail, sidebar, header, footer, home, chat
+  main.js             picks the part: titlebar, rail, sidebar, header, footer, home, chat, toast
   chat.js             Whitby Chat's conversation and composer, and which of chat or terminal shows
   chat-agents.js      how Claude Code's, Grok's and Codex's sessions are found and read
   chat-screen.js      what an agent asks in its terminal, read off its screen, and how to answer
@@ -178,6 +179,7 @@ mods/whitby/          one mod; props.part picks what each block draws
   header.js footer.js the agent page's header and footer
   usage.js            the footer's plan usage: each agent's sign-in, its provider, the bars and card
   home.js             the Projects page
+  toast.js            notifications: Herdr's toast with an X to dismiss it
 RECIPE.md             the brief Herdr's community format asks for: what to build, exactly
 scripts/              the demo
 ```

@@ -11,6 +11,7 @@
   "ui_font": ".SystemUIFont",
   "terminal_padding": [8, 8],
   "background": "canvas",
+  "toast": "whitby",
   "children": [
     {
       "id": "titlebar",

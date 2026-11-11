@@ -120,7 +120,8 @@ agent you're on fills the rest of the window.
 
 - **Layout tree** (`layouts/whitby.json`), a root column with `titlebar: "none"`, the themes
   `{light: whitby-light, dark: whitby-dark}`, `font: "Geist Mono"`, `font_size: 13`,
-  `ui_font: ".SystemUIFont"` and `terminal_padding: [8, 8]`:
+  `ui_font: ".SystemUIFont"`, `terminal_padding: [8, 8]` and `toast: "whitby"` (Herdr's toast
+  with an X at its right that dismisses it; a click elsewhere on it still runs its action):
   - `titlebar`: a 30 px `window_drag` block.
   - `body`: a row with a 1 px `border` divider, holding:
     - `rail`, 48 px.
