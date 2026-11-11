@@ -172,6 +172,24 @@ async function newest(pattern, id) {
   return r.stdout.trim() || null;
 }
 
+// For each Codex rollout "$f": its path, then what its first line says of it (its folder,
+// what started it, and for whom), tab-separated.
+const CODEX_META = `printf "%s\\t%s\\n" "$f" "$(head -n 1 "$f" | grep -oE '"(cwd|originator|thread_source)":"[^"]*"' | tr "\\n" "\\t")"`;
+
+// The rollouts CODEX_META printed that the Codex CLI started for you, in order: not Codex
+// Desktop's, nor a subagent's (they write there too, often for the same folder).
+function codexOwn(stdout) {
+  const out = [];
+  for (const line of stdout.split("\n")) {
+    const [path, ...fields] = line.split("\t");
+    const field = (key, missing) => fields.find((f) => f.startsWith(`"${key}":`)) ?? missing;
+    if (!path || field("originator") !== '"originator":"codex-tui"') continue;
+    if (field("thread_source", '"thread_source":"user"') !== '"thread_source":"user"') continue;
+    out.push({ path, cwd: field("cwd") });
+  }
+  return out;
+}
+
 // Claude Code keeps ~/.claude/sessions/<pid>.json for each running session: its id, and
 // when its process started.
 async function claudeSession(info) {
@@ -502,23 +520,33 @@ export const KINDS = {
     // While it compacts the conversation, its status line says so. Its rollout says nothing
     // until it's done.
     compacting: /^•\s+Compacting context \(\d[^)]*\)\s*$/,
-    // Codex writes ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and its first
-    // line names the folder. A terminal's session is the newest rollout for its folder
-    // that started after the terminal did. (Two Codex terminals in one folder can't be
-    // told apart this way: each shows the newest.)
+    // Codex writes ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, and logs which
+    // process wrote each session: a terminal's is the newest its Codex wrote since the
+    // terminal started. Without those logs (Codex in its shared daemon, or quiet for the two
+    // days or so they last), it's the newest the Codex CLI started for you in the terminal's
+    // folder after the terminal started. (Two Codex terminals in one folder can't be told
+    // apart that way: each shows the newest.)
     async find(info) {
       // Resumed (as a folder change does): its argv names the session.
       const argv = info.argv ?? [];
       const at = argv.indexOf("resume");
       if (at >= 0 && ID.test(argv[at + 1] ?? "")) return newest('"$HOME"/.codex/sessions/*/*/*/rollout-*-"$1".jsonl', argv[at + 1]);
+      const pid = info.foreground?.pid;
+      if (Number.isInteger(pid)) {
+        const logged = await exec("/bin/sh", ["-c",
+          'for id in $(sqlite3 -readonly "file:$HOME/.codex/logs_2.sqlite?mode=ro" "select thread_id from logs ' +
+          "where process_uuid like 'pid:$1:%' and thread_id is not null and ts >= $2 group by thread_id order by max(ts) desc limit 10\" 2>/dev/null); do " +
+          'f=$(ls -t "$HOME"/.codex/sessions/*/*/*/rollout-*-"$id".jsonl 2>/dev/null | head -1); if [ -n "$f" ]; then ' + CODEX_META + "; fi; done",
+          "sh", String(pid), String(Math.floor((info.created_ms ?? 0) / 1000))]).catch(() => ({ stdout: "" }));
+        const own = codexOwn(logged.stdout)[0];
+        if (own) return own.path;
+      }
       const r = await exec("/bin/sh", ["-c",
-        'for f in $(ls -t "$HOME"/.codex/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | head -40); do ' +
-        'printf "%s\\t%s\\n" "$f" "$(head -n 1 "$f" | grep -o \'"cwd":"[^"]*"\' | head -1)"; done']);
+        'for f in $(ls -t "$HOME"/.codex/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | head -40); do ' + CODEX_META + "; done"]);
       const cwd = info.foreground?.cwd ?? info.cwd;
       const born = (info.created_ms ?? 0) - 60_000;
-      for (const line of r.stdout.split("\n")) {
-        const [path, field] = line.split("\t");
-        if (!path || field !== `"cwd":${JSON.stringify(cwd)}`) continue;
+      for (const { path, cwd: field } of codexOwn(r.stdout)) {
+        if (field !== `"cwd":${JSON.stringify(cwd)}`) continue;
         const m = path.match(/rollout-(\d+)-(\d+)-(\d+)T(\d+)-(\d+)-(\d+)/);
         const started = m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : 0;
         if (started >= born) return path;
