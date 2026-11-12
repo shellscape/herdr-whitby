@@ -1,10 +1,11 @@
 // Whitby's app rail (src/ui/app_rail.rs): 48px, its buttons at the bottom.
 // Add opens a new space (Whitby: add a project); Settings opens herdr's settings.
-// Above them, past a line, GitHub's status as its icon (see initRail).
+// Above them, past a line, GitHub's status as its icon (see initRail); a click opens
+// githubstatus.com.
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { run, window } from "herdr";
+import { run, window, exec } from "herdr";
 import { palette, icon, alpha } from "./kit.js";
 
 const FADE = { duration: 150, easing: "ease-out" };
@@ -111,11 +112,17 @@ function railButton(v, t, id, glyph, tip, action) {
 
 // GitHub's icon, in a button's 28px: the text color (black in light) while all is normal,
 // amber during an incident, red during an outage, muted while unknown. Its tooltip names
-// the open incidents, else GitHub's own summary.
+// the open incidents, else GitHub's own summary. A click opens githubstatus.com.
 function githubStatus(v, t) {
   const g = v.github ?? { level: "unknown", tip: "GitHub" };
   const color = { normal: t.foreground, incident: t.warn, outage: t.failed }[g.level] ?? t.muted;
-  return withTip("rail-github", g.tip, div().size(28).accessibility_label(g.tip).child(centered(icon("github", 20, color))));
+  return withTip("rail-github", g.tip, div()
+    .id("rail-github")
+    .size(28)
+    .cursor_pointer()
+    .accessibility_label(g.tip)
+    .on_click(() => exec("open", ["https://www.githubstatus.com"]))
+    .child(centered(icon("github", 20, color))));
 }
 
 export function rail(v) {

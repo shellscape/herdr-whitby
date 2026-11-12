@@ -23,7 +23,8 @@ agent you're on fills the rest of the window.
   (settings). Each button is 28 px, radius 7, a 1 px `border`, with an 18 px `muted` glyph.
   Above them, past a 28 px `border` line, GitHub's 20 px solid mark shows githubstatus.com's
   summary: `foreground` while all is normal, amber during an open incident or a degraded
-  component, red during a partial or major outage.
+  component, red during a partial or major outage. It takes a pointer cursor, and a click
+  opens githubstatus.com.
 - **Projects sidebar**, 192 px (180–352), on `chrome` (`#f9f9fb` / `#18191b`). Its content sits
   8 px further in than the paddings below; backgrounds and the selection bar still reach the edge.
   - A 35 px filter row: a 14 px search icon (16 px in) and a 13 px "Filter Projects" field on

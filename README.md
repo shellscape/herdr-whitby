@@ -49,7 +49,8 @@ Version 0.1.0.
   `/usage` does.
 - **GitHub status.** Above the rail's buttons, past a line, GitHub's icon shows
   [githubstatus.com](https://www.githubstatus.com), read every two minutes. It is black while all
-  is normal, amber during an incident and red during an outage. Hover it for the open incidents.
+  is normal, amber during an incident and red during an outage. Hover it for the open incidents;
+  click it to open githubstatus.com.
 - **Resource badges.** CPU and memory badges on rows and project headers once they cross
   Whitby's thresholds: 30% CPU or 500 MB for an agent, 25% or 1 GB for a project. Hover a row's
   badges for both figures.
