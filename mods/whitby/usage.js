@@ -1,9 +1,9 @@
 // Plan usage for the agent in view, in the agent footer: thin bars for its limits (Claude's
 // five-hour session over its weekly limit; Codex's and Grok's as they report them), shown
 // only while the pane runs that agent. Resting the pointer on them opens a card with each
-// one's share used and the time until it resets. A Grok team seat has no share to show (its
-// team manages its limits), so it shows what the session has cost so far, as Grok's /usage
-// does.
+// one's share used and the time until it resets (for Claude, also its weekly Fable limit
+// when the plan has one). A Grok team seat has no share to show (its team manages its
+// limits), so it shows what the session has cost so far, as Grok's /usage does.
 //
 // Plain elements only: gpui-base's HoverCard and Progress parts are native components, and
 // building them as the footer redraws held up the whole window on every click. The card is
@@ -61,7 +61,11 @@ async function claude(p) {
     { Authorization: `Bearer ${oauth.accessToken}`, "anthropic-beta": "oauth-2025-04-20" });
   const windows = [["Session", data?.five_hour], ["Weekly", data?.seven_day]]
     .map(([label, x]) => ({ label, used: num(x?.utilization), reset: parseTime(x?.resets_at) }));
-  return { windows };
+  // A model's own weekly limit (Fable's), for the card only: the footer keeps its two bars.
+  const models = (Array.isArray(data?.limits) ? data.limits : [])
+    .filter((x) => x?.kind === "weekly_scoped" && typeof x.scope?.model?.display_name === "string")
+    .map((x) => ({ label: `Weekly (${x.scope.model.display_name})`, used: num(x.percent), reset: parseTime(x.resets_at) }));
+  return { windows, models };
 }
 
 async function codex(p) {
@@ -201,7 +205,7 @@ function details(p, u, session) {
     if (session) parts.push(`Session cost: ${dollars(session.cost)}`, `Session tokens: ${count(session.tokens)} (${count(session.cached)} cached)`, `Model calls: ${count(session.calls)}`);
     else parts.push("No session usage yet");
   }
-  for (const w of u.windows ?? []) parts.push(`${w.label} ${percent(w.used)} used, ${resetText(w.reset)}`);
+  for (const w of [...(u.windows ?? []), ...(u.models ?? [])]) parts.push(`${w.label} ${percent(w.used)} used, ${resetText(w.reset)}`);
   if (u.updated && u.windows?.length) {
     const minutes = Math.floor((Date.now() - u.updated) / 60000);
     parts.push(minutes < 1 ? "Updated just now" : `Updated ${minutes}m ago`);
@@ -275,7 +279,7 @@ export function usageCard(card) {
             .child(fact(t, "Cached", count(session.cached)))
             .child(fact(t, "Model calls", count(session.calls)))
           : div().text_size(11.5).text_color(t.muted).child("No session usage yet")))
-      .children((u.windows ?? []).map((w) => meter(t, w)))
+      .children([...(u.windows ?? []), ...(u.models ?? [])].map((w) => meter(t, w)))
       .when(Boolean(u.error), (el) => el.child(v_flex().gap(2)
         .child(div().text_size(11.5).font_weight(600).text_color(t.warn).child(u.error.title))
         .child(div().text_size(10).text_color(t.fade(0.7)).child(u.error.detail))))
