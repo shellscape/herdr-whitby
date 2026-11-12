@@ -236,5 +236,6 @@ change in the demo in both light and dark before sending it.
 ## License
 
 [MPL 2.0](LICENSE). The interface icons in `mods/whitby/icons/` are [Lucide](https://lucide.dev) (ISC,
-[LICENSE.lucide](mods/whitby/icons/LICENSE.lucide)). The mark and the platter drawing are
+[LICENSE.lucide](mods/whitby/icons/LICENSE.lucide)), except `github.svg`, GitHub's mark from
+[Octicons](https://github.com/primer/octicons). The mark and the platter drawing are
 Whitby's own artwork, shared here under the same license.

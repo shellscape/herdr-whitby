@@ -21,7 +21,7 @@ agent you're on fills the rest of the window.
   the bell's top-right.
 - **Rail**, 48 px, on `canvas`, with two buttons at the bottom: `+` (new space) and a gear
   (settings). Each button is 28 px, radius 7, a 1 px `border`, with an 18 px `muted` glyph.
-  Above them, past a 28 px `border` line, an 18 px GitHub glyph shows githubstatus.com's
+  Above them, past a 28 px `border` line, GitHub's 16 px solid mark shows githubstatus.com's
   summary: `foreground` while all is normal, amber during an open incident or a degraded
   component, red during a partial or major outage.
 - **Projects sidebar**, 192 px (180–352), on `chrome` (`#f9f9fb` / `#18191b`). Its content sits
@@ -151,7 +151,7 @@ agent you're on fills the rest of the window.
   - Shipped mods: `menu`, `new-menu`, and `mods/pane/split-right.svg`.
 - **Programs**: `ps -axo pid=,ppid=,pcpu=,rss=`, and `open {folder}`.
 - **Art**: Lucide icons (ISC) in `mods/whitby/icons/`, plus a filled bell made from Lucide's
-  bell. `whitby.svg` (the mark) and `platter.svg` are Whitby's drawings. The agent outlines are
+  bell, and `github.svg`, GitHub's solid mark from Octicons. `whitby.svg` (the mark) and `platter.svg` are Whitby's drawings. The agent outlines are
   `clawd.svg` (the Claude Code crab, drawn for Whitby on a 24 px grid: a 1.5 px outline, 2 px
   eyes and feet, square ends) and `codex.svg`.
   `layouts/whitby.svg` is the settings preview.
