@@ -6,7 +6,7 @@
 import { View, div } from "gpui-kit";
 import { props } from "herdr";
 import { titlebar } from "./titlebar.js";
-import { rail } from "./rail.js";
+import { initRail, rail } from "./rail.js";
 import { initSidebar, sidebar } from "./sidebar.js";
 import { header } from "./header.js";
 import { footer } from "./footer.js";
@@ -20,6 +20,7 @@ export default class Whitby extends View {
   init(_props, cx) {
     const p = props();
     this.part = p?.part ?? (p?.overlay && p?.title !== undefined ? "toast" : undefined);
+    if (this.part === "rail") initRail(this, cx);
     if (this.part === "sidebar") initSidebar(this, cx);
     if (this.part === "footer") { sampleStats(this, cx); initUsage(this, cx); }
     if (this.part === "home") initHome(this);

@@ -1,5 +1,6 @@
 // Whitby's app rail (src/ui/app_rail.rs): 48px, its buttons at the bottom.
 // Add opens a new space (Whitby: add a project); Settings opens herdr's settings.
+// Above them, past a line, GitHub's status as its icon (see initRail).
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
@@ -7,6 +8,31 @@ import { run, window } from "herdr";
 import { palette, icon, alpha } from "./kit.js";
 
 const FADE = { duration: 150, easing: "ease-out" };
+
+// GitHub's status from githubstatus.com, read at once and then every two minutes, into
+// v.github = { level, tip }. The level is "outage" while a component reports a partial or
+// major outage; "incident" while an incident is open or a component runs degraded; else
+// "normal". It is "unknown" before the first reading and after a failed one.
+export function initRail(v, cx) {
+  v.github = { level: "unknown", tip: "GitHub: reading status…" };
+  const read = (cx) => cx.spawn(async (cx) => {
+    try {
+      const res = await fetch("https://www.githubstatus.com/api/v2/summary.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      const parts = d.components ?? [];
+      const open = (d.incidents ?? []).map((i) => i.name);
+      const level = parts.some((c) => c.status === "partial_outage" || c.status === "major_outage") ? "outage"
+        : open.length || parts.some((c) => c.status === "degraded_performance") ? "incident" : "normal";
+      v.github = { level, tip: `GitHub: ${open.join(" · ") || d.status?.description || "All Systems Operational"}` };
+    } catch {
+      v.github = { level: "unknown", tip: "GitHub: status couldn't be read" };
+    }
+    cx.notify();
+  });
+  read(cx);
+  cx.timer.every(120000, read);
+}
 
 // Hover state, which drives the fades. It comes from on_hover on a control's outer
 // element, which doesn't take the press: on the element that does, a press dragged off
@@ -83,6 +109,15 @@ function railButton(v, t, id, glyph, tip, action) {
     .child(pressLayer(`${id}-press`, alpha(t.foreground, 0.08), 3, action)));
 }
 
+// GitHub's icon, in a button's 28px: the text color (black in light) while all is normal,
+// amber during an incident, red during an outage, muted while unknown. Its tooltip names
+// the open incidents, else GitHub's own summary.
+function githubStatus(v, t) {
+  const g = v.github ?? { level: "unknown", tip: "GitHub" };
+  const color = { normal: t.foreground, incident: t.warn, outage: t.failed }[g.level] ?? t.muted;
+  return withTip("rail-github", g.tip, div().size(28).accessibility_label(g.tip).child(centered(icon("github", 18, color))));
+}
+
 export function rail(v) {
   const t = palette();
   return v_flex()
@@ -93,6 +128,8 @@ export function rail(v) {
     .items_center()
     .bg(t.bar)
     .child(div().flex_1())
+    .child(div().my(5.25).child(githubStatus(v, t)))
+    .child(div().w(28).h(1).bg(t.border))
     .child(div().my(5.25).child(railButton(v, t, "rail-add", "plus", "New space", () => run("space.new"))))
     .child(div().my(5.25).child(railButton(v, t, "rail-settings", "settings", "Settings", () => run("app.settings"))));
 }
