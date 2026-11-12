@@ -115,8 +115,7 @@ function railButton(v, t, id, glyph, tip, action) {
 function githubStatus(v, t) {
   const g = v.github ?? { level: "unknown", tip: "GitHub" };
   const color = { normal: t.foreground, incident: t.warn, outage: t.failed }[g.level] ?? t.muted;
-  // The solid mark fills its box, where the outline glyphs leave a margin: 16px matches their 18.
-  return withTip("rail-github", g.tip, div().size(28).accessibility_label(g.tip).child(centered(icon("github", 16, color))));
+  return withTip("rail-github", g.tip, div().size(28).accessibility_label(g.tip).child(centered(icon("github", 20, color))));
 }
 
 export function rail(v) {

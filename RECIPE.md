@@ -21,7 +21,7 @@ agent you're on fills the rest of the window.
   the bell's top-right.
 - **Rail**, 48 px, on `canvas`, with two buttons at the bottom: `+` (new space) and a gear
   (settings). Each button is 28 px, radius 7, a 1 px `border`, with an 18 px `muted` glyph.
-  Above them, past a 28 px `border` line, GitHub's 16 px solid mark shows githubstatus.com's
+  Above them, past a 28 px `border` line, GitHub's 20 px solid mark shows githubstatus.com's
   summary: `foreground` while all is normal, amber during an open incident or a degraded
   component, red during a partial or major outage.
 - **Projects sidebar**, 192 px (180–352), on `chrome` (`#f9f9fb` / `#18191b`). Its content sits
